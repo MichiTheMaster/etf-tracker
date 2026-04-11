@@ -1,0 +1,18 @@
+# Sensible Konfigurationsdaten – NIEMALS einchecken
+credentials.json
+.env
+
+# Laufzeit-/Prozessdateien
+.dev-processes.json
+*.log
+
+# Backend Build-Artefakte
+backend/target/
+
+# Frontend Build-/Dependency-Artefakte
+etf-frontend/node_modules/
+etf-frontend/build/
+
+# Editor/System
+.DS_Store
+Thumbs.db
