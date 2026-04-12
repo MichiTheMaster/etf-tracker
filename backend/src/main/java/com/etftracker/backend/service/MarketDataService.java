@@ -267,7 +267,9 @@ public class MarketDataService {
         long now = System.currentTimeMillis();
         for (String symbol : symbols) {
             try {
-                String stooqSymbol = STOOQ_SYMBOLS.getOrDefault(symbol, symbol.toLowerCase(Locale.ROOT));
+                String canonicalRequested = canonicalSymbol(symbol);
+                String stooqSymbol = STOOQ_SYMBOLS.getOrDefault(canonicalRequested,
+                        symbol.toLowerCase(Locale.ROOT));
                 String url = "https://stooq.com/q/l/?s=" + stooqSymbol + "&f=sd2t2ohlcvn&e=json";
 
                 HttpHeaders headers = new HttpHeaders();
@@ -315,9 +317,9 @@ public class MarketDataService {
                         }
                     }
 
-                    cache.put(resolvedSymbol,
+                    cache.put(symbol,
                             new CacheEntry(price, now, ter, "stooq", stooqSymbol.toUpperCase(Locale.ROOT), terSource));
-                    result.put(resolvedSymbol, createQuote(resolvedSymbol, price, "live", ter, debugEnabled,
+                    result.put(symbol, createQuote(symbol, price, "live", ter, debugEnabled,
                             "stooq", stooqSymbol.toUpperCase(Locale.ROOT), terSource));
                 } else {
                     putYahooOrDemo(symbol, result, now, debugEnabled);
@@ -329,8 +331,11 @@ public class MarketDataService {
         }
 
         for (String sym : symbols) {
+            String canonical = canonicalSymbol(sym);
             result.computeIfAbsent(sym,
-                    s -> createQuote(s, FALLBACK.getOrDefault(s, 0.0), "demo", resolveTer(s, null), debugEnabled,
+                    s -> createQuote(s,
+                            FALLBACK.getOrDefault(s.toUpperCase(Locale.ROOT), FALLBACK.getOrDefault(canonical, 0.0)),
+                            "demo", resolveTer(s, null), debugEnabled,
                             "fallback", "fallback-static", "fallback"));
         }
     }
