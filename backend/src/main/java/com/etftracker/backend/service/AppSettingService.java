@@ -56,6 +56,23 @@ public class AppSettingService {
         return defaultValue;
     }
 
+    public int getInt(String key, int defaultValue, int min, int max) {
+        String value = findValue(key);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < min || parsed > max) {
+                return defaultValue;
+            }
+            return parsed;
+        } catch (NumberFormatException ex) {
+            return defaultValue;
+        }
+    }
+
     public Map<String, String> getMarketAliases() {
         Map<String, String> aliases = new LinkedHashMap<>();
         List<AppSetting> storedAliases = appSettingRepository.findByKeyStartingWith(MARKET_ALIAS_PREFIX);

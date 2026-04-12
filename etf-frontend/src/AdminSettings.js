@@ -18,6 +18,8 @@ import { API_BASE } from "./apiBase";
 
 const FALLBACK_KEY = "market.fallbackPricesEnabled";
 const ALIAS_PREFIX = "market.alias.";
+const INACTIVITY_TIMEOUT_KEY = "app.session.inactivityTimeoutMinutes";
+const INACTIVITY_WARNING_KEY = "app.session.inactivityWarningMinutes";
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState([]);
@@ -35,6 +37,8 @@ export default function AdminSettings() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [fallbackEnabled, setFallbackEnabled] = useState("true");
+  const [inactivityTimeoutMinutes, setInactivityTimeoutMinutes] = useState("30");
+  const [inactivityWarningMinutes, setInactivityWarningMinutes] = useState("28");
   const [aliasBase, setAliasBase] = useState("");
   const [aliasTarget, setAliasTarget] = useState("");
 
@@ -60,6 +64,16 @@ export default function AdminSettings() {
       const fallbackEntry = list.find((entry) => entry.key === FALLBACK_KEY);
       if (fallbackEntry?.value) {
         setFallbackEnabled(fallbackEntry.value.toLowerCase() === "true" ? "true" : "false");
+      }
+
+      const timeoutEntry = list.find((entry) => entry.key === INACTIVITY_TIMEOUT_KEY);
+      if (timeoutEntry?.value) {
+        setInactivityTimeoutMinutes(timeoutEntry.value);
+      }
+
+      const warningEntry = list.find((entry) => entry.key === INACTIVITY_WARNING_KEY);
+      if (warningEntry?.value) {
+        setInactivityWarningMinutes(warningEntry.value);
       }
     } catch (loadError) {
       setError(loadError?.message || "Settings konnten nicht geladen werden.");
@@ -189,6 +203,33 @@ export default function AdminSettings() {
     }
   };
 
+  const saveInactivitySettings = async () => {
+    setError("");
+    setMessage("");
+
+    const timeout = Number.parseInt(inactivityTimeoutMinutes, 10);
+    const warning = Number.parseInt(inactivityWarningMinutes, 10);
+
+    if (Number.isNaN(timeout) || timeout < 5 || timeout > 240) {
+      setError("Timeout muss zwischen 5 und 240 Minuten liegen.");
+      return;
+    }
+
+    if (Number.isNaN(warning) || warning < 1 || warning >= timeout) {
+      setError("Warnung muss mindestens 1 Minute sein und kleiner als Timeout.");
+      return;
+    }
+
+    try {
+      await upsertSetting(INACTIVITY_TIMEOUT_KEY, String(timeout));
+      await upsertSetting(INACTIVITY_WARNING_KEY, String(warning));
+      setMessage("Inaktivitaets-Timer gespeichert.");
+      await loadSettings();
+    } catch (saveError) {
+      setError(saveError?.message || "Inaktivitaets-Timer konnte nicht gespeichert werden.");
+    }
+  };
+
   const addAlias = async () => {
     setError("");
     setMessage("");
@@ -294,6 +335,35 @@ export default function AdminSettings() {
           {message}
         </Alert>
       )}
+
+      <Paper sx={{ p: 3 }}>
+        <Typography variant="h6" sx={{ mb: 2 }}>
+          Session Timeout
+        </Typography>
+        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+          <TextField
+            label="Auto-Logout (Minuten)"
+            size="small"
+            type="number"
+            slotProps={{ htmlInput: { min: 5, max: 240, step: 1 } }}
+            value={inactivityTimeoutMinutes}
+            onChange={(event) => setInactivityTimeoutMinutes(event.target.value)}
+            sx={{ width: 220 }}
+          />
+          <TextField
+            label="Warnung ab (Minuten)"
+            size="small"
+            type="number"
+            slotProps={{ htmlInput: { min: 1, max: 239, step: 1 } }}
+            value={inactivityWarningMinutes}
+            onChange={(event) => setInactivityWarningMinutes(event.target.value)}
+            sx={{ width: 220 }}
+          />
+          <Button variant="contained" onClick={saveInactivitySettings}>
+            Speichern
+          </Button>
+        </Stack>
+      </Paper>
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>

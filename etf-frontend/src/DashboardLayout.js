@@ -13,8 +13,8 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import { API_BASE } from "./apiBase";
 
 const drawerWidth = 240;
-const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;   // 30 Minuten
-const INACTIVITY_WARNING_MS = 28 * 60 * 1000;    // Vorwarnung nach 28 Minuten
+const DEFAULT_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_INACTIVITY_WARNING_MS = 28 * 60 * 1000;
 
 const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
 
@@ -34,6 +34,8 @@ export default function DashboardLayout({ children }) {
     }
   });
   const [inactiveElapsedMs, setInactiveElapsedMs] = useState(0);
+  const [inactivityTimeoutMs, setInactivityTimeoutMs] = useState(DEFAULT_INACTIVITY_TIMEOUT_MS);
+  const [inactivityWarningMs, setInactivityWarningMs] = useState(DEFAULT_INACTIVITY_WARNING_MS);
   const logoutTimerRef = useRef(null);
   const tickerRef = useRef(null);
   const lastActivityAtRef = useRef(Date.now());
@@ -76,8 +78,41 @@ export default function DashboardLayout({ children }) {
 
     logoutTimerRef.current = setTimeout(() => {
       handleLogout();
-    }, INACTIVITY_TIMEOUT_MS);
-  }, [handleLogout]);
+    }, inactivityTimeoutMs);
+  }, [handleLogout, inactivityTimeoutMs]);
+
+  useEffect(() => {
+    const loadInactivitySettings = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/settings/inactivity`, {
+          method: "GET",
+          credentials: "include"
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = await response.json();
+        const timeoutMinutes = Number.parseInt(String(payload?.timeoutMinutes ?? ""), 10);
+        const warningMinutes = Number.parseInt(String(payload?.warningMinutes ?? ""), 10);
+        const hasValidTimeout = !Number.isNaN(timeoutMinutes) && timeoutMinutes >= 5 && timeoutMinutes <= 240;
+        const effectiveTimeoutMinutes = hasValidTimeout ? timeoutMinutes : 30;
+
+        setInactivityTimeoutMs(effectiveTimeoutMinutes * 60 * 1000);
+
+        if (!Number.isNaN(warningMinutes) && warningMinutes >= 1 && warningMinutes < effectiveTimeoutMinutes) {
+          setInactivityWarningMs(warningMinutes * 60 * 1000);
+        } else {
+          setInactivityWarningMs(Math.max(1, effectiveTimeoutMinutes - 2) * 60 * 1000);
+        }
+      } catch {
+        // Keep local defaults when settings endpoint is unavailable.
+      }
+    };
+
+    loadInactivitySettings();
+  }, []);
 
   useEffect(() => {
     resetInactivityTimer();
@@ -140,8 +175,8 @@ export default function DashboardLayout({ children }) {
     };
   }, []);
 
-  const warningActive = inactiveElapsedMs >= INACTIVITY_WARNING_MS;
-  const remainingMs = Math.max(INACTIVITY_TIMEOUT_MS - inactiveElapsedMs, 0);
+  const warningActive = inactiveElapsedMs >= inactivityWarningMs;
+  const remainingMs = Math.max(inactivityTimeoutMs - inactiveElapsedMs, 0);
   const elapsedMinutes = Math.floor(inactiveElapsedMs / 60000);
   const elapsedSeconds = Math.floor((inactiveElapsedMs % 60000) / 1000);
   const remainingMinutes = Math.floor(remainingMs / 60000);
@@ -273,11 +308,21 @@ export default function DashboardLayout({ children }) {
               sx={{ fontWeight: 600 }}
             />
           </Box>
-          {warningActive && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mr: 1.5 }}>
-              <Typography variant="body2" sx={{ opacity: 0.9, fontSize: "0.82rem", whiteSpace: "nowrap" }}>
-                Inaktiv seit {elapsedText} | Auto-Logout in {remainingText}
-              </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mr: 1.5 }}>
+            <Typography
+              variant="body2"
+              sx={{
+                opacity: warningActive ? 0.95 : 0.78,
+                color: warningActive ? "#fff3e0" : "inherit",
+                fontSize: "0.82rem",
+                whiteSpace: "nowrap"
+              }}
+            >
+              {warningActive
+                ? `Inaktiv seit ${elapsedText} | Auto-Logout in ${remainingText}`
+                : `Auto-Logout in ${remainingText}`}
+            </Typography>
+            {warningActive && (
               <Button
                 color="inherit"
                 size="small"
@@ -287,8 +332,8 @@ export default function DashboardLayout({ children }) {
               >
                 Angemeldet bleiben
               </Button>
-            </Box>
-          )}
+            )}
+          </Box>
           <Tooltip title="Meine Daten" arrow>
             <IconButton
               color="inherit"

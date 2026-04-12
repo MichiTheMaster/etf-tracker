@@ -38,6 +38,8 @@ public class DataInitializer implements CommandLineRunner {
     }
 
     private void seedAppSettings() {
+        appSettingService.upsertIfAbsent("app.session.inactivityTimeoutMinutes", "30");
+        appSettingService.upsertIfAbsent("app.session.inactivityWarningMinutes", "28");
         appSettingService.upsertIfAbsent("market.fallbackPricesEnabled", "true");
 
         cleanupLegacySxrsAlias();
