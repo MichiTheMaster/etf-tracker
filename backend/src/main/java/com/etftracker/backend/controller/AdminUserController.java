@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -128,15 +129,16 @@ public class AdminUserController {
                 .sorted()
                 .toList();
 
-        return Map.of(
-                "id", user.getId(),
-                "username", user.getUsername(),
-                "email", user.getEmail(),
-                "emailVerified", user.isEmailVerified(),
-                "roles", roles,
-                "failedLoginAttempts", user.getFailedLoginAttempts(),
-                "lockedUntil", user.getLockedUntil(),
-                "lastLoginAt", user.getLastLoginAt(),
-                "lastLoginIp", user.getLastLoginIp());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", user.getId());
+        result.put("username", user.getUsername());
+        result.put("email", user.getEmail());
+        result.put("emailVerified", user.isEmailVerified());
+        result.put("roles", roles);
+        result.put("failedLoginAttempts", user.getFailedLoginAttempts());
+        result.put("lockedUntil", user.getLockedUntil());
+        result.put("lastLoginAt", user.getLastLoginAt());
+        result.put("lastLoginIp", user.getLastLoginIp());
+        return result;
     }
 }
