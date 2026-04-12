@@ -20,7 +20,9 @@ const ALIAS_PREFIX = "market.alias.";
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState([]);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [userLoading, setUserLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [fallbackEnabled, setFallbackEnabled] = useState("true");
@@ -57,8 +59,31 @@ export default function AdminSettings() {
     }
   };
 
+  const loadUsers = async () => {
+    setUserLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/users`, {
+        method: "GET",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(`Benutzer konnten nicht geladen werden (${response.status})`);
+      }
+
+      const data = await response.json();
+      setUsers(Array.isArray(data) ? data : []);
+    } catch (loadError) {
+      setError(loadError?.message || "Benutzer konnten nicht geladen werden.");
+    } finally {
+      setUserLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadSettings();
+    loadUsers();
   }, []);
 
   const aliases = useMemo(() => {
@@ -141,6 +166,34 @@ export default function AdminSettings() {
       await loadSettings();
     } catch (aliasError) {
       setError(aliasError?.message || "Alias konnte nicht geloescht werden.");
+    }
+  };
+
+  const toggleAdminRole = async (user) => {
+    setError("");
+    setMessage("");
+
+    const roles = Array.isArray(user?.roles) ? user.roles : [];
+    const isAdmin = roles.includes("ADMIN");
+    const method = isAdmin ? "DELETE" : "PUT";
+
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(user.id)}/roles/admin`, {
+        method,
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(`Rolle konnte nicht aktualisiert werden (${response.status})`);
+      }
+
+      setMessage(isAdmin
+        ? `ADMIN-Rolle fuer ${user.username} entfernt.`
+        : `ADMIN-Rolle fuer ${user.username} vergeben.`);
+
+      await loadUsers();
+    } catch (roleError) {
+      setError(roleError?.message || "Rolle konnte nicht aktualisiert werden.");
     }
   };
 
@@ -248,6 +301,62 @@ export default function AdminSettings() {
               <TableRow>
                 <TableCell colSpan={3}>
                   <Typography color="text.secondary">Keine Aliase hinterlegt.</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Paper>
+
+      <Paper sx={{ p: 3 }}>
+        <Typography variant="h6" sx={{ mb: 2 }}>
+          Benutzerverwaltung
+        </Typography>
+
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Benutzer</TableCell>
+              <TableCell>E-Mail</TableCell>
+              <TableCell>Verifiziert</TableCell>
+              <TableCell>Rollen</TableCell>
+              <TableCell align="right">Aktion</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {users.map((user) => {
+              const roles = Array.isArray(user.roles) ? user.roles : [];
+              const isAdmin = roles.includes("ADMIN");
+              return (
+                <TableRow key={user.id}>
+                  <TableCell>{user.username}</TableCell>
+                  <TableCell>{user.email}</TableCell>
+                  <TableCell>{user.emailVerified ? "Ja" : "Nein"}</TableCell>
+                  <TableCell>{roles.join(", ") || "-"}</TableCell>
+                  <TableCell align="right">
+                    <Button
+                      size="small"
+                      variant={isAdmin ? "outlined" : "contained"}
+                      color={isAdmin ? "warning" : "primary"}
+                      onClick={() => toggleAdminRole(user)}
+                    >
+                      {isAdmin ? "Admin entziehen" : "Admin geben"}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            {!userLoading && users.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <Typography color="text.secondary">Keine Benutzer gefunden.</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+            {userLoading && (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <Typography color="text.secondary">Benutzer werden geladen...</Typography>
                 </TableCell>
               </TableRow>
             )}
