@@ -74,7 +74,7 @@ export default function Portfolio() {
   }, [state]);
 
   useEffect(() => {
-    refreshQuotes(false);
+    refreshQuotes(true);
   }, [refreshQuotes]);
 
   useEffect(() => {

@@ -17,7 +17,7 @@ export default function Dashboard() {
         setState(portfolioState);
 
         const symbols = Object.keys(portfolioState?.holdings || {});
-        const quoteData = await fetchLivePrices(false, symbols);
+        const quoteData = await fetchLivePrices(true, symbols);
         if (quoteData) {
           setQuotes(quoteData);
         }
