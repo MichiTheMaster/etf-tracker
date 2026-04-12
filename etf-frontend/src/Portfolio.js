@@ -57,10 +57,12 @@ export default function Portfolio() {
       return;
     }
 
+    const symbolsToRefresh = Object.keys(state?.holdings || {});
+
     isRefreshingRef.current = true;
     setIsRefreshing(true);
     try {
-      const data = await fetchLivePrices(forceRefresh);
+      const data = await fetchLivePrices(forceRefresh, symbolsToRefresh);
       if (data) {
         setQuotes(data);
       }
@@ -69,7 +71,7 @@ export default function Portfolio() {
       isRefreshingRef.current = false;
       setIsRefreshing(false);
     }
-  }, []);
+  }, [state]);
 
   useEffect(() => {
     refreshQuotes(false);
