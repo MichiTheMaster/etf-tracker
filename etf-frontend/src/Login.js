@@ -42,6 +42,15 @@ export default function Login() {
     navigate("/dashboard");
   };
 
+  const getResponseMessage = async (response, fallbackMessage) => {
+    try {
+      const payload = await response.json();
+      return payload.message || fallbackMessage;
+    } catch {
+      return fallbackMessage;
+    }
+  };
+
   const handleAuth = async () => {
     if (isSubmitting) {
       return;
@@ -80,7 +89,18 @@ export default function Login() {
         });
 
         if (!registerResponse.ok) {
-          setMessage("Registrierung fehlgeschlagen");
+          setMessage(await getResponseMessage(registerResponse, "Registrierung fehlgeschlagen"));
+          return;
+        }
+
+        const registerPayload = await registerResponse.json();
+
+        if (registerPayload.verificationRequired) {
+          setMessageType("success");
+          setMessage(registerPayload.message || "Bitte bestaetige deine E-Mail-Adresse.");
+          setMode("login");
+          setPassword("");
+          setConfirmPassword("");
           return;
         }
 
@@ -99,7 +119,7 @@ export default function Login() {
           localStorage.removeItem("forceLoggedOut");
           navigate("/dashboard");
         } else {
-          setMessage("Login fehlgeschlagen");
+          setMessage(await getResponseMessage(response, "Login fehlgeschlagen"));
         }
       }
     } catch (error) {

@@ -8,6 +8,7 @@ import Etfs from "./Etfs";
 import Performance from "./Performance";
 import LegalPage from "./LegalPage";
 import LandingPage from "./LandingPage";
+import VerifyEmail from "./VerifyEmail";
 
 function hasActiveSession() {
 	if (typeof window === "undefined") {
@@ -30,6 +31,7 @@ function App() {
       <Routes>
 				<Route path="/" element={<LandingPage />} />
 				<Route path="/login" element={<LoginRoute />} />
+				<Route path="/verify-email" element={<VerifyEmail />} />
 				<Route path="/legal/:slug" element={<LegalPage />} />
         <Route
           path="/dashboard"
