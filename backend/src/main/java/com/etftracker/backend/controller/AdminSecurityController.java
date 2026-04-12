@@ -4,7 +4,9 @@ import com.etftracker.backend.dto.LockedAccountDto;
 import com.etftracker.backend.dto.SecurityIncidentDto;
 import com.etftracker.backend.dto.SecurityOverviewDto;
 import com.etftracker.backend.entity.AuditLog;
+import com.etftracker.backend.entity.Role;
 import com.etftracker.backend.entity.User;
+import com.etftracker.backend.repository.RoleRepository;
 import com.etftracker.backend.repository.UserRepository;
 import com.etftracker.backend.service.AuditLogService;
 import com.etftracker.backend.service.UserService;
@@ -30,12 +32,14 @@ public class AdminSecurityController {
 
     private final AuditLogService auditLogService;
     private final UserRepository userRepository;
+        private final RoleRepository roleRepository;
     private final UserService userService;
 
     public AdminSecurityController(AuditLogService auditLogService, UserRepository userRepository,
-            UserService userService) {
+                        RoleRepository roleRepository, UserService userService) {
         this.auditLogService = auditLogService;
         this.userRepository = userRepository;
+                this.roleRepository = roleRepository;
         this.userService = userService;
     }
 
@@ -101,6 +105,21 @@ public class AdminSecurityController {
                 "Benutzer: " + user.getUsername() + (minutes == null ? "" : " | Minuten: " + minutes));
         return Map.of("message", "Konto gesperrt");
     }
+
+        @PostMapping("/self/restore-admin")
+        @PreAuthorize("hasAnyAuthority('ADMIN','READONLY_ADMIN')")
+        public Map<String, String> restoreOwnAdmin(Authentication auth) {
+                User currentUser = userRepository.findByUsername(auth.getName())
+                                .orElseThrow(() -> new IllegalArgumentException("Benutzer nicht gefunden"));
+
+                Role adminRole = roleRepository.findByName("ADMIN")
+                                .orElseThrow(() -> new IllegalStateException("Role ADMIN not found"));
+                currentUser.getRoles().add(adminRole);
+                userRepository.save(currentUser);
+
+                auditLogService.log(auth.getName(), "ADMIN", "Admin-Rechte wiederhergestellt", "Self-Service Recovery");
+                return Map.of("message", "Admin-Rechte wurden wiederhergestellt");
+        }
 
     private LockedAccountDto toLockedDto(User user) {
         return new LockedAccountDto(

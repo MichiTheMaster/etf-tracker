@@ -541,6 +541,27 @@ export default function AdminSettings() {
     }
   };
 
+  const restoreOwnAdminRole = async () => {
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/security/self/restore-admin`, {
+        method: "POST",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(`Admin-Rechte konnten nicht wiederhergestellt werden (${response.status})`);
+      }
+
+      setMessage("Admin-Rechte wiederhergestellt. Seite wird aktualisiert...");
+      await Promise.all([loadCurrentUserPermissions(), loadUsers(), loadSecurityOverview(), loadAuditLog(0)]);
+    } catch (restoreError) {
+      setError(restoreError?.message || "Admin-Rechte konnten nicht wiederhergestellt werden.");
+    }
+  };
+
   const toggleAccountLock = async (user) => {
     setError("");
     setMessage("");
@@ -752,6 +773,11 @@ export default function AdminSettings() {
           <Typography variant="h6" sx={{ flex: 1 }}>
             Sicherheits-Panel
           </Typography>
+          {!canWriteAdmin && (
+            <Button size="small" variant="contained" color="warning" onClick={restoreOwnAdminRole}>
+              Admin-Rechte wiederherstellen
+            </Button>
+          )}
           <Button size="small" variant="outlined" onClick={loadSecurityOverview}>
             Aktualisieren
           </Button>
