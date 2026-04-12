@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Box, Drawer, List, ListItemButton, ListItemIcon, ListItemText, AppBar, Toolbar, Typography, Button, Chip, Divider, Snackbar, Alert } from "@mui/material";
+import { Box, Drawer, List, ListItemButton, ListItemIcon, ListItemText, AppBar, Toolbar, Typography, Button, Chip, Divider, Snackbar, Alert, Tooltip, IconButton } from "@mui/material";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import PieChartIcon from "@mui/icons-material/PieChart";
 import TableChartIcon from "@mui/icons-material/TableChart";
 import PersonIcon from "@mui/icons-material/Person";
+import LogoutIcon from "@mui/icons-material/Logout";
 import GavelIcon from "@mui/icons-material/Gavel";
 import PrivacyTipIcon from "@mui/icons-material/PrivacyTip";
 import DescriptionIcon from "@mui/icons-material/Description";
@@ -215,17 +216,21 @@ export default function DashboardLayout({ children }) {
               sx={{ fontWeight: 600 }}
             />
           </Box>
-          <Button
-            color="inherit"
-            component={Link}
-            to="/me"
-            sx={{ mr: 1 }}
-          >
-            Meine Daten
-          </Button>
-          <Button color="inherit" onClick={handleLogout}>
-            Logout
-          </Button>
+          <Tooltip title="Meine Daten" arrow>
+            <IconButton
+              color="inherit"
+              component={Link}
+              to="/me"
+              sx={{ mr: 0.5 }}
+            >
+              <PersonIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Logout" arrow>
+            <IconButton color="inherit" onClick={handleLogout}>
+              <LogoutIcon />
+            </IconButton>
+          </Tooltip>
         </Toolbar>
       </AppBar>
 
