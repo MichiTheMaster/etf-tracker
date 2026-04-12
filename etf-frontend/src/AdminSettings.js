@@ -187,6 +187,8 @@ export default function AdminSettings() {
     }
   };
 
+  // Initial data load must run once on mount; audit filter updates are triggered by explicit actions.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     loadCurrentUserPermissions();
     loadSettings();
