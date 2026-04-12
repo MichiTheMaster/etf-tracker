@@ -1,6 +1,7 @@
 package com.etftracker.backend.entity;
 
 import jakarta.persistence.*;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -23,6 +24,21 @@ public class User {
 
     @Column(nullable = false)
     private boolean emailVerified;
+
+    @Column(nullable = false)
+    private int failedLoginAttempts;
+
+    @Column
+    private Instant lockedUntil;
+
+    @Column
+    private Instant lastLoginAt;
+
+    @Column(length = 64)
+    private String lastLoginIp;
+
+    @Column(length = 255)
+    private String lastLoginUserAgent;
 
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"), inverseJoinColumns = @JoinColumn(name = "role_id"))
@@ -74,5 +90,45 @@ public class User {
 
     public void setRoles(Set<Role> roles) {
         this.roles = roles;
+    }
+
+    public int getFailedLoginAttempts() {
+        return failedLoginAttempts;
+    }
+
+    public void setFailedLoginAttempts(int failedLoginAttempts) {
+        this.failedLoginAttempts = failedLoginAttempts;
+    }
+
+    public Instant getLockedUntil() {
+        return lockedUntil;
+    }
+
+    public void setLockedUntil(Instant lockedUntil) {
+        this.lockedUntil = lockedUntil;
+    }
+
+    public Instant getLastLoginAt() {
+        return lastLoginAt;
+    }
+
+    public void setLastLoginAt(Instant lastLoginAt) {
+        this.lastLoginAt = lastLoginAt;
+    }
+
+    public String getLastLoginIp() {
+        return lastLoginIp;
+    }
+
+    public void setLastLoginIp(String lastLoginIp) {
+        this.lastLoginIp = lastLoginIp;
+    }
+
+    public String getLastLoginUserAgent() {
+        return lastLoginUserAgent;
+    }
+
+    public void setLastLoginUserAgent(String lastLoginUserAgent) {
+        this.lastLoginUserAgent = lastLoginUserAgent;
     }
 }

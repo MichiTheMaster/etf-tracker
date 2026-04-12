@@ -2,6 +2,7 @@ package com.etftracker.backend.controller;
 
 import com.etftracker.backend.dto.RegisterRequest;
 import com.etftracker.backend.dto.AuthResponse;
+import com.etftracker.backend.dto.LoginAttemptResult;
 import com.etftracker.backend.entity.User;
 import com.etftracker.backend.service.AuditLogService;
 import com.etftracker.backend.service.EmailVerificationService;
@@ -56,13 +57,19 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-        public ResponseEntity<Object> login(@RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+    public ResponseEntity<Object> login(@RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         try {
-            User user = userService.login(request.getUsername(), request.getPassword());
+            String ipAddress = extractIpAddress(httpRequest);
+            LoginAttemptResult loginResult = userService.login(
+                    request.getUsername(),
+                    request.getPassword(),
+                    ipAddress,
+                    httpRequest.getHeader("User-Agent"));
+            User user = loginResult.getUser();
             String token = jwtUtil.generateToken(user.getUsername());
             String sessionId = userSessionService.createSession(user,
                 httpRequest.getHeader("User-Agent"),
-                extractIpAddress(httpRequest));
+                ipAddress);
 
             ResponseCookie jwtCookie = ResponseCookie.from("jwt", token)
                 .httpOnly(true)
@@ -80,15 +87,24 @@ public class AuthController {
                     .maxAge(24L * 60 * 60)
                     .build();
 
-            auditLogService.log(user.getUsername(), "AUTH", "Login erfolgreich", null);
+            auditLogService.log(user.getUsername(), "AUTH", "Login erfolgreich", loginResult.getLoginDetails());
+            if (loginResult.isUnusualActivity()) {
+                auditLogService.log(user.getUsername(), "AUTH", "Ungewöhnliche Aktivität",
+                        loginResult.getLoginDetails());
+            }
             return ResponseEntity.ok()
                     .header("Set-Cookie", jwtCookie.toString(), sidCookie.toString())
                     .body(new AuthResponse(user.getUsername(), user.getEmail(), user.isEmailVerified(), null,
                             userService.isEmailVerificationRequired()));
         } catch (IllegalArgumentException ex) {
-            auditLogService.log(request.getUsername(), "AUTH", "Login fehlgeschlagen", null);
+            auditLogService.log(request.getUsername(), "AUTH", "Login fehlgeschlagen",
+                    "IP: " + extractIpAddress(httpRequest));
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", ex.getMessage()));
         } catch (IllegalStateException ex) {
+            if (ex.getMessage() != null && ex.getMessage().toLowerCase().contains("gesperrt")) {
+                auditLogService.log(request.getUsername(), "AUTH", "Account gesperrt",
+                        "IP: " + extractIpAddress(httpRequest));
+            }
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", ex.getMessage()));
         }
     }

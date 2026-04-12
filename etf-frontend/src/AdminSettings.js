@@ -20,6 +20,8 @@ const FALLBACK_KEY = "market.fallbackPricesEnabled";
 const ALIAS_PREFIX = "market.alias.";
 const INACTIVITY_TIMEOUT_KEY = "app.session.inactivityTimeoutMinutes";
 const INACTIVITY_WARNING_KEY = "app.session.inactivityWarningMinutes";
+const MAX_FAILED_ATTEMPTS_KEY = "app.security.maxFailedLoginAttempts";
+const LOCK_DURATION_MINUTES_KEY = "app.security.lockDurationMinutes";
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState([]);
@@ -28,6 +30,10 @@ export default function AdminSettings() {
   const [auditPage, setAuditPage] = useState(0);
   const [auditTotalPages, setAuditTotalPages] = useState(0);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [securityOverview, setSecurityOverview] = useState(null);
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [settingsHistory, setSettingsHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [auditCategory, setAuditCategory] = useState("");
   const [auditUsername, setAuditUsername] = useState("");
   const [auditFromDate, setAuditFromDate] = useState("");
@@ -40,6 +46,8 @@ export default function AdminSettings() {
   const [fallbackEnabled, setFallbackEnabled] = useState("true");
   const [inactivityTimeoutMinutes, setInactivityTimeoutMinutes] = useState("30");
   const [inactivityWarningMinutes, setInactivityWarningMinutes] = useState("28");
+  const [maxFailedAttempts, setMaxFailedAttempts] = useState("5");
+  const [lockDurationMinutes, setLockDurationMinutes] = useState("30");
   const [aliasBase, setAliasBase] = useState("");
   const [aliasTarget, setAliasTarget] = useState("");
 
@@ -76,6 +84,16 @@ export default function AdminSettings() {
       if (warningEntry?.value) {
         setInactivityWarningMinutes(warningEntry.value);
       }
+
+      const maxAttemptsEntry = list.find((entry) => entry.key === MAX_FAILED_ATTEMPTS_KEY);
+      if (maxAttemptsEntry?.value) {
+        setMaxFailedAttempts(maxAttemptsEntry.value);
+      }
+
+      const lockDurationEntry = list.find((entry) => entry.key === LOCK_DURATION_MINUTES_KEY);
+      if (lockDurationEntry?.value) {
+        setLockDurationMinutes(lockDurationEntry.value);
+      }
     } catch (loadError) {
       setError(loadError?.message || "Settings konnten nicht geladen werden.");
     } finally {
@@ -105,6 +123,48 @@ export default function AdminSettings() {
     }
   };
 
+  const loadSecurityOverview = async () => {
+    setSecurityLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/security/overview`, {
+        method: "GET",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(`Sicherheitsdaten konnten nicht geladen werden (${response.status})`);
+      }
+
+      const data = await response.json();
+      setSecurityOverview(data);
+    } catch (loadError) {
+      setError(loadError?.message || "Sicherheitsdaten konnten nicht geladen werden.");
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
+
+  const loadSettingsHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/settings/history`, {
+        method: "GET",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(`Setting-Historie konnte nicht geladen werden (${response.status})`);
+      }
+
+      const data = await response.json();
+      setSettingsHistory(Array.isArray(data) ? data : []);
+    } catch (loadError) {
+      setError(loadError?.message || "Setting-Historie konnte nicht geladen werden.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   const loadCurrentUserPermissions = async () => {
     try {
       const response = await fetch(`${API_BASE}/api/me`, {
@@ -130,6 +190,8 @@ export default function AdminSettings() {
   useEffect(() => {
     loadCurrentUserPermissions();
     loadSettings();
+    loadSettingsHistory();
+    loadSecurityOverview();
     loadUsers();
     loadAuditLog(0);
   }, []);
@@ -283,6 +345,7 @@ export default function AdminSettings() {
       await upsertSetting(FALLBACK_KEY, fallbackEnabled);
       setMessage("Fallback-Einstellung gespeichert.");
       await loadSettings();
+      await loadSettingsHistory();
     } catch (saveError) {
       setError(saveError?.message || "Fallback-Einstellung konnte nicht gespeichert werden.");
     }
@@ -310,8 +373,37 @@ export default function AdminSettings() {
       await upsertSetting(INACTIVITY_WARNING_KEY, String(warning));
       setMessage("Inaktivitaets-Timer gespeichert.");
       await loadSettings();
+      await loadSettingsHistory();
     } catch (saveError) {
       setError(saveError?.message || "Inaktivitaets-Timer konnte nicht gespeichert werden.");
+    }
+  };
+
+  const saveSecurityThresholds = async () => {
+    setError("");
+    setMessage("");
+
+    const attempts = Number.parseInt(maxFailedAttempts, 10);
+    const lockMinutes = Number.parseInt(lockDurationMinutes, 10);
+
+    if (Number.isNaN(attempts) || attempts < 3 || attempts > 20) {
+      setError("Maximale Fehlversuche muessen zwischen 3 und 20 liegen.");
+      return;
+    }
+
+    if (Number.isNaN(lockMinutes) || lockMinutes < 5 || lockMinutes > 1440) {
+      setError("Sperrdauer muss zwischen 5 und 1440 Minuten liegen.");
+      return;
+    }
+
+    try {
+      await upsertSetting(MAX_FAILED_ATTEMPTS_KEY, String(attempts));
+      await upsertSetting(LOCK_DURATION_MINUTES_KEY, String(lockMinutes));
+      setMessage("Sicherheits-Schwellwerte gespeichert.");
+      await loadSettings();
+      await loadSettingsHistory();
+    } catch (saveError) {
+      setError(saveError?.message || "Sicherheits-Schwellwerte konnten nicht gespeichert werden.");
     }
   };
 
@@ -333,6 +425,7 @@ export default function AdminSettings() {
       setAliasTarget("");
       setMessage(`Alias ${base} -> ${target} gespeichert.`);
       await loadSettings();
+      await loadSettingsHistory();
     } catch (aliasError) {
       setError(aliasError?.message || "Alias konnte nicht gespeichert werden.");
     }
@@ -346,6 +439,7 @@ export default function AdminSettings() {
       await deleteSetting(`${ALIAS_PREFIX}${base}`);
       setMessage(`Alias ${base} geloescht.`);
       await loadSettings();
+      await loadSettingsHistory();
     } catch (aliasError) {
       setError(aliasError?.message || "Alias konnte nicht geloescht werden.");
     }
@@ -362,6 +456,33 @@ export default function AdminSettings() {
       return "-";
     }
     return details;
+  };
+
+  const formatHistoryValue = (value) => {
+    if (value === null || value === undefined || value === "") {
+      return "-";
+    }
+    return value;
+  };
+
+  const unlockAccount = async (userId) => {
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/security/locks/${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(`Konto konnte nicht entsperrt werden (${response.status})`);
+      }
+
+      setMessage("Konto entsperrt.");
+      await Promise.all([loadUsers(), loadSecurityOverview(), loadAuditLog(0)]);
+    } catch (unlockError) {
+      setError(unlockError?.message || "Konto konnte nicht entsperrt werden.");
+    }
   };
 
   const toggleAdminRole = async (user) => {
@@ -417,6 +538,32 @@ export default function AdminSettings() {
       await loadUsers();
     } catch (roleError) {
       setError(roleError?.message || "Rolle konnte nicht aktualisiert werden.");
+    }
+  };
+
+  const toggleAccountLock = async (user) => {
+    setError("");
+    setMessage("");
+
+    const isLocked = !!user.lockedUntil && new Date(user.lockedUntil).getTime() > Date.now();
+    const method = isLocked ? "DELETE" : "POST";
+
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/security/locks/${encodeURIComponent(user.id)}`, {
+        method,
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(`Konto konnte nicht aktualisiert werden (${response.status})`);
+      }
+
+      setMessage(isLocked
+        ? `Konto von ${user.username} entsperrt.`
+        : `Konto von ${user.username} gesperrt.`);
+      await Promise.all([loadUsers(), loadSecurityOverview(), loadAuditLog(0)]);
+    } catch (lockError) {
+      setError(lockError?.message || "Konto konnte nicht aktualisiert werden.");
     }
   };
 
@@ -487,6 +634,37 @@ export default function AdminSettings() {
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>
+          Login-Schutz
+        </Typography>
+        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+          <TextField
+            label="Max. Fehlversuche"
+            size="small"
+            type="number"
+            slotProps={{ htmlInput: { min: 3, max: 20, step: 1 } }}
+            value={maxFailedAttempts}
+            onChange={(event) => setMaxFailedAttempts(event.target.value)}
+            sx={{ width: 220 }}
+            disabled={!canWriteAdmin}
+          />
+          <TextField
+            label="Sperrdauer (Minuten)"
+            size="small"
+            type="number"
+            slotProps={{ htmlInput: { min: 5, max: 1440, step: 1 } }}
+            value={lockDurationMinutes}
+            onChange={(event) => setLockDurationMinutes(event.target.value)}
+            sx={{ width: 220 }}
+            disabled={!canWriteAdmin}
+          />
+          <Button variant="contained" onClick={saveSecurityThresholds} disabled={!canWriteAdmin}>
+            Speichern
+          </Button>
+        </Stack>
+      </Paper>
+
+      <Paper sx={{ p: 3 }}>
+        <Typography variant="h6" sx={{ mb: 2 }}>
           Preis-Fallback
         </Typography>
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
@@ -497,7 +675,6 @@ export default function AdminSettings() {
           />
           <TextField
             select
-            SelectProps={{ native: true }}
             label="Fallback Preise"
             size="small"
             value={fallbackEnabled}
@@ -505,8 +682,8 @@ export default function AdminSettings() {
             sx={{ minWidth: 220 }}
             disabled={!canWriteAdmin}
           >
-            <option value="true">Aktiviert (empfohlen)</option>
-            <option value="false">Deaktiviert (strict live)</option>
+            <MenuItem value="true">Aktiviert (empfohlen)</MenuItem>
+            <MenuItem value="false">Deaktiviert (strict live)</MenuItem>
           </TextField>
           <Button variant="contained" onClick={saveFallbackSetting} disabled={!canWriteAdmin}>
             Speichern
@@ -571,6 +748,104 @@ export default function AdminSettings() {
       </Paper>
 
       <Paper sx={{ p: 3 }}>
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+          <Typography variant="h6" sx={{ flex: 1 }}>
+            Sicherheits-Panel
+          </Typography>
+          <Button size="small" variant="outlined" onClick={loadSecurityOverview}>
+            Aktualisieren
+          </Button>
+        </Stack>
+
+        <Stack direction="row" spacing={2} sx={{ mb: 2 }} flexWrap="wrap">
+          <Chip
+            color="error"
+            label={`Fehlgeschlagene Logins 24h: ${securityOverview?.failedLoginsLast24Hours ?? 0}`}
+          />
+          <Chip
+            color="warning"
+            label={`Fehlgeschlagene Logins 7 Tage: ${securityOverview?.failedLoginsLast7Days ?? 0}`}
+          />
+          <Chip
+            color="info"
+            label={`Gesperrte Accounts: ${securityOverview?.lockedAccounts?.length ?? 0}`}
+          />
+        </Stack>
+
+        {securityLoading && <Typography color="text.secondary">Sicherheitsdaten werden geladen...</Typography>}
+
+        <Typography variant="subtitle1" sx={{ mb: 1 }}>
+          Gesperrte Accounts
+        </Typography>
+        <Table size="small" sx={{ mb: 3 }}>
+          <TableHead>
+            <TableRow>
+              <TableCell>Benutzer</TableCell>
+              <TableCell>E-Mail</TableCell>
+              <TableCell>Fehlversuche</TableCell>
+              <TableCell>Gesperrt bis</TableCell>
+              <TableCell align="right">Aktion</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {(securityOverview?.lockedAccounts || []).map((entry) => (
+              <TableRow key={entry.userId}>
+                <TableCell>{entry.username}</TableCell>
+                <TableCell>{entry.email}</TableCell>
+                <TableCell>{entry.failedLoginAttempts}</TableCell>
+                <TableCell>{entry.lockedUntil ? new Date(entry.lockedUntil).toLocaleString("de-DE") : "-"}</TableCell>
+                <TableCell align="right">
+                  <Button size="small" color="warning" disabled={!canWriteAdmin} onClick={() => unlockAccount(entry.userId)}>
+                    Entsperren
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+            {!securityLoading && (securityOverview?.lockedAccounts?.length ?? 0) === 0 && (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <Typography color="text.secondary">Keine gesperrten Accounts.</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+
+        <Typography variant="subtitle1" sx={{ mb: 1 }}>
+          Auffällige Aktivität
+        </Typography>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Zeitpunkt</TableCell>
+              <TableCell>Benutzer</TableCell>
+              <TableCell>Ereignis</TableCell>
+              <TableCell>Details</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {(securityOverview?.unusualActivities || []).map((entry) => (
+              <TableRow key={entry.id}>
+                <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(entry.timestamp).toLocaleString("de-DE")}</TableCell>
+                <TableCell>{entry.username}</TableCell>
+                <TableCell>{entry.action}</TableCell>
+                <TableCell sx={{ color: "text.secondary", fontFamily: "monospace", fontSize: "0.78rem" }}>
+                  {formatAuditDetails(entry.details)}
+                </TableCell>
+              </TableRow>
+            ))}
+            {!securityLoading && (securityOverview?.unusualActivities?.length ?? 0) === 0 && (
+              <TableRow>
+                <TableCell colSpan={4}>
+                  <Typography color="text.secondary">Keine auffälligen Ereignisse gefunden.</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Paper>
+
+      <Paper sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>
           Benutzerverwaltung
         </Typography>
@@ -582,6 +857,7 @@ export default function AdminSettings() {
               <TableCell>E-Mail</TableCell>
               <TableCell>Verifiziert</TableCell>
               <TableCell>Rollen</TableCell>
+              <TableCell>Security</TableCell>
               <TableCell align="right">Aktion</TableCell>
             </TableRow>
           </TableHead>
@@ -589,12 +865,16 @@ export default function AdminSettings() {
             {users.map((user) => {
               const roles = Array.isArray(user.roles) ? user.roles : [];
               const isAdmin = roles.includes("ADMIN");
+              const isLocked = !!user.lockedUntil && new Date(user.lockedUntil).getTime() > Date.now();
               return (
                 <TableRow key={user.id}>
                   <TableCell>{user.username}</TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>{user.emailVerified ? "Ja" : "Nein"}</TableCell>
                   <TableCell>{roles.join(", ") || "-"}</TableCell>
+                  <TableCell>
+                    {isLocked ? `Gesperrt bis ${new Date(user.lockedUntil).toLocaleString("de-DE")}` : "OK"}
+                  </TableCell>
                   <TableCell align="right">
                     <Button
                       size="small"
@@ -615,21 +895,76 @@ export default function AdminSettings() {
                     >
                       {roles.includes("READONLY_ADMIN") ? "Readonly entziehen" : "Readonly geben"}
                     </Button>
+                    <Button
+                      size="small"
+                      variant={isLocked ? "outlined" : "contained"}
+                      color={isLocked ? "success" : "error"}
+                      disabled={!canWriteAdmin}
+                      onClick={() => toggleAccountLock(user)}
+                      sx={{ ml: 1 }}
+                    >
+                      {isLocked ? "Entsperren" : "Sperren"}
+                    </Button>
                   </TableCell>
                 </TableRow>
               );
             })}
             {!userLoading && users.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5}>
+                <TableCell colSpan={6}>
                   <Typography color="text.secondary">Keine Benutzer gefunden.</Typography>
                 </TableCell>
               </TableRow>
             )}
             {userLoading && (
               <TableRow>
-                <TableCell colSpan={5}>
+                <TableCell colSpan={6}>
                   <Typography color="text.secondary">Benutzer werden geladen...</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Paper>
+
+      <Paper sx={{ p: 3 }}>
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+          <Typography variant="h6" sx={{ flex: 1 }}>
+            Konfigurations-Historie
+          </Typography>
+          <Button size="small" variant="outlined" onClick={loadSettingsHistory}>
+            Aktualisieren
+          </Button>
+        </Stack>
+
+        {historyLoading && <Typography color="text.secondary">Historie wird geladen...</Typography>}
+
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Zeitpunkt</TableCell>
+              <TableCell>Benutzer</TableCell>
+              <TableCell>Key</TableCell>
+              <TableCell>Typ</TableCell>
+              <TableCell>Alt</TableCell>
+              <TableCell>Neu</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {settingsHistory.map((entry) => (
+              <TableRow key={entry.id}>
+                <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(entry.changedAt).toLocaleString("de-DE")}</TableCell>
+                <TableCell>{entry.changedBy}</TableCell>
+                <TableCell sx={{ fontFamily: "monospace" }}>{entry.settingKey}</TableCell>
+                <TableCell>{entry.changeType}</TableCell>
+                <TableCell sx={{ fontFamily: "monospace", color: "text.secondary" }}>{formatHistoryValue(entry.oldValue)}</TableCell>
+                <TableCell sx={{ fontFamily: "monospace" }}>{formatHistoryValue(entry.newValue)}</TableCell>
+              </TableRow>
+            ))}
+            {!historyLoading && settingsHistory.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6}>
+                  <Typography color="text.secondary">Noch keine Konfigurations-Historie vorhanden.</Typography>
                 </TableCell>
               </TableRow>
             )}
@@ -714,7 +1049,7 @@ export default function AdminSettings() {
             type="date"
             value={auditFromDate}
             onChange={(event) => setAuditFromDate(event.target.value)}
-            InputLabelProps={{ shrink: true }}
+            slotProps={{ inputLabel: { shrink: true } }}
           />
           <TextField
             label="Bis (Datum)"
@@ -722,7 +1057,7 @@ export default function AdminSettings() {
             type="date"
             value={auditToDate}
             onChange={(event) => setAuditToDate(event.target.value)}
-            InputLabelProps={{ shrink: true }}
+            slotProps={{ inputLabel: { shrink: true } }}
           />
           <Button
             size="small"

@@ -1,6 +1,5 @@
 package com.etftracker.backend.controller;
 
-import com.etftracker.backend.dto.AdminUserDto;
 import com.etftracker.backend.entity.Role;
 import com.etftracker.backend.entity.User;
 import com.etftracker.backend.repository.RoleRepository;
@@ -19,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin/users")
@@ -36,10 +36,10 @@ public class AdminUserController {
     }
 
     @GetMapping
-    public List<AdminUserDto> getUsers() {
+    public List<Map<String, Object>> getUsers() {
         return userRepository.findAll().stream()
                 .map(this::toDto)
-                .sorted(Comparator.comparing(AdminUserDto::getUsername, String.CASE_INSENSITIVE_ORDER))
+                .sorted(Comparator.comparing(entry -> String.valueOf(entry.get("username")), String.CASE_INSENSITIVE_ORDER))
                 .toList();
     }
 
@@ -120,7 +120,7 @@ public class AdminUserController {
                 .orElseThrow(() -> new IllegalStateException("Role " + roleName + " not found"));
     }
 
-    private AdminUserDto toDto(User user) {
+    private Map<String, Object> toDto(User user) {
         List<String> roles = user.getRoles().stream()
                 .map(Role::getName)
                 .filter(name -> name != null && !name.isBlank())
@@ -128,11 +128,15 @@ public class AdminUserController {
                 .sorted()
                 .toList();
 
-        return new AdminUserDto(
-                user.getId(),
-                user.getUsername(),
-                user.getEmail(),
-                user.isEmailVerified(),
-                roles);
+        return Map.of(
+                "id", user.getId(),
+                "username", user.getUsername(),
+                "email", user.getEmail(),
+                "emailVerified", user.isEmailVerified(),
+                "roles", roles,
+                "failedLoginAttempts", user.getFailedLoginAttempts(),
+                "lockedUntil", user.getLockedUntil(),
+                "lastLoginAt", user.getLastLoginAt(),
+                "lastLoginIp", user.getLastLoginIp());
     }
 }
