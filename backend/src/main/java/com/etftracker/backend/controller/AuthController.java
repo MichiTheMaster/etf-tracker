@@ -3,6 +3,7 @@ package com.etftracker.backend.controller;
 import com.etftracker.backend.dto.RegisterRequest;
 import com.etftracker.backend.dto.AuthResponse;
 import com.etftracker.backend.entity.User;
+import com.etftracker.backend.service.AuditLogService;
 import com.etftracker.backend.service.EmailVerificationService;
 import com.etftracker.backend.service.UserService;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,20 +23,24 @@ public class AuthController {
     private final UserService userService;
     private final JwtUtil jwtUtil;
     private final EmailVerificationService emailVerificationService;
+    private final AuditLogService auditLogService;
 
     @Value("${app.cookie.secure:false}")
     private boolean secureCookie;
 
-    public AuthController(UserService userService, JwtUtil jwtUtil, EmailVerificationService emailVerificationService) {
+    public AuthController(UserService userService, JwtUtil jwtUtil, EmailVerificationService emailVerificationService,
+            AuditLogService auditLogService) {
         this.userService = userService;
         this.jwtUtil = jwtUtil;
         this.emailVerificationService = emailVerificationService;
+        this.auditLogService = auditLogService;
     }
 
     @PostMapping("/register")
     public ResponseEntity<Object> register(@RequestBody RegisterRequest request) {
         try {
             AuthResponse response = userService.register(request);
+            auditLogService.log(request.getUsername(), "AUTH", "Registrierung", "E-Mail: " + request.getEmail());
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
@@ -59,11 +64,13 @@ public class AuthController {
                     .maxAge(24L * 60 * 60)
                     .build();
 
+            auditLogService.log(user.getUsername(), "AUTH", "Login erfolgreich", null);
             return ResponseEntity.ok()
                     .header("Set-Cookie", cookie.toString())
                     .body(new AuthResponse(user.getUsername(), user.getEmail(), user.isEmailVerified(), null,
                             userService.isEmailVerificationRequired()));
         } catch (IllegalArgumentException ex) {
+            auditLogService.log(request.getUsername(), "AUTH", "Login fehlgeschlagen", null);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", ex.getMessage()));
         } catch (IllegalStateException ex) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", ex.getMessage()));

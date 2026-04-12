@@ -2,6 +2,7 @@ package com.etftracker.backend.controller;
 
 import com.etftracker.backend.entity.User;
 import com.etftracker.backend.repository.UserRepository;
+import com.etftracker.backend.service.AuditLogService;
 import com.etftracker.backend.service.UserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -17,10 +18,12 @@ public class TestController {
 
     private final UserRepository userRepository;
     private final UserService userService;
+    private final AuditLogService auditLogService;
 
-    public TestController(UserRepository userRepository, UserService userService) {
+    public TestController(UserRepository userRepository, UserService userService, AuditLogService auditLogService) {
         this.userRepository = userRepository;
         this.userService = userService;
+        this.auditLogService = auditLogService;
     }
 
     @GetMapping("/api/me")
@@ -44,6 +47,7 @@ public class TestController {
 
         try {
             userService.changePassword(auth.getName(), currentPassword, newPassword);
+            auditLogService.log(auth.getName(), "AUTH", "Passwort geändert", null);
             return ResponseEntity.ok(Map.of("message", "Passwort erfolgreich geändert"));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));

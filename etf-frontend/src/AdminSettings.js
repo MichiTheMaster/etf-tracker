@@ -21,6 +21,10 @@ const ALIAS_PREFIX = "market.alias.";
 export default function AdminSettings() {
   const [settings, setSettings] = useState([]);
   const [users, setUsers] = useState([]);
+  const [auditLog, setAuditLog] = useState([]);
+  const [auditPage, setAuditPage] = useState(0);
+  const [auditTotalPages, setAuditTotalPages] = useState(0);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [userLoading, setUserLoading] = useState(true);
   const [error, setError] = useState("");
@@ -84,7 +88,27 @@ export default function AdminSettings() {
   useEffect(() => {
     loadSettings();
     loadUsers();
+    loadAuditLog(0);
   }, []);
+
+  const loadAuditLog = async (page) => {
+    setAuditLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/audit-log?page=${page}&size=50`, {
+        method: "GET",
+        credentials: "include"
+      });
+      if (!response.ok) throw new Error(`Audit-Log konnte nicht geladen werden (${response.status})`);
+      const data = await response.json();
+      setAuditLog(Array.isArray(data.content) ? data.content : []);
+      setAuditTotalPages(data.totalPages ?? 0);
+      setAuditPage(data.page ?? 0);
+    } catch (err) {
+      setError(err?.message || "Audit-Log konnte nicht geladen werden.");
+    } finally {
+      setAuditLoading(false);
+    }
+  };
 
   const aliases = useMemo(() => {
     return settings
@@ -397,6 +421,71 @@ export default function AdminSettings() {
         <Typography variant="body2" color="text.secondary">
           Hinweis: Aenderungen wirken nach dem naechsten Kurs-Refresh. Ein kompletter Deploy ist dafuer nicht noetig.
         </Typography>
+      </Paper>
+
+      <Paper sx={{ p: 3 }}>
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+          <Typography variant="h6" sx={{ flex: 1 }}>
+            Audit-Log
+          </Typography>
+          <Button size="small" variant="outlined" onClick={() => loadAuditLog(auditPage)}>
+            Aktualisieren
+          </Button>
+        </Stack>
+
+        {auditLoading && <Typography color="text.secondary">Wird geladen...</Typography>}
+
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Zeitpunkt</TableCell>
+              <TableCell>Benutzer</TableCell>
+              <TableCell>Kategorie</TableCell>
+              <TableCell>Aktion</TableCell>
+              <TableCell>Details</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {auditLog.map((entry) => (
+              <TableRow key={entry.id}>
+                <TableCell sx={{ whiteSpace: "nowrap" }}>
+                  {new Date(entry.timestamp).toLocaleString("de-DE")}
+                </TableCell>
+                <TableCell>{entry.username}</TableCell>
+                <TableCell>
+                  <Chip label={entry.category} size="small"
+                    color={entry.category === "AUTH" ? "info" : entry.category === "ADMIN" ? "warning" : "default"}
+                  />
+                </TableCell>
+                <TableCell>{entry.action}</TableCell>
+                <TableCell sx={{ color: "text.secondary", fontFamily: "monospace", fontSize: "0.78rem" }}>
+                  {entry.details ?? "-"}
+                </TableCell>
+              </TableRow>
+            ))}
+            {!auditLoading && auditLog.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <Typography color="text.secondary">Noch keine Einträge vorhanden.</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+
+        {auditTotalPages > 1 && (
+          <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 1 }}>
+            <Button size="small" disabled={auditPage === 0} onClick={() => loadAuditLog(auditPage - 1)}>
+              Zurück
+            </Button>
+            <Typography variant="body2" sx={{ alignSelf: "center" }}>
+              Seite {auditPage + 1} / {auditTotalPages}
+            </Typography>
+            <Button size="small" disabled={auditPage >= auditTotalPages - 1} onClick={() => loadAuditLog(auditPage + 1)}>
+              Vor
+            </Button>
+          </Stack>
+        )}
       </Paper>
     </Stack>
   );

@@ -7,6 +7,7 @@ import com.etftracker.backend.dto.PortfolioResponse;
 import com.etftracker.backend.dto.SellEtfRequest;
 import com.etftracker.backend.entity.User;
 import com.etftracker.backend.repository.UserRepository;
+import com.etftracker.backend.service.AuditLogService;
 import com.etftracker.backend.service.EtfPreferenceService;
 import com.etftracker.backend.service.PortfolioService;
 import org.springframework.http.ResponseEntity;
@@ -21,12 +22,14 @@ public class PortfolioController {
     private final PortfolioService portfolioService;
     private final EtfPreferenceService etfPreferenceService;
     private final UserRepository userRepository;
+    private final AuditLogService auditLogService;
 
     public PortfolioController(PortfolioService portfolioService, EtfPreferenceService etfPreferenceService,
-            UserRepository userRepository) {
+            UserRepository userRepository, AuditLogService auditLogService) {
         this.portfolioService = portfolioService;
         this.etfPreferenceService = etfPreferenceService;
         this.userRepository = userRepository;
+        this.auditLogService = auditLogService;
     }
 
     @GetMapping("/load")
@@ -45,6 +48,8 @@ public class PortfolioController {
         try {
             User user = getCurrentUser();
             PortfolioResponse response = portfolioService.buyEtf(user, request.symbol, request.quantity, request.price);
+            auditLogService.log(user.getUsername(), "PORTFOLIO", "ETF gekauft",
+                    request.symbol + ", Menge: " + request.quantity + ", Kurs: " + request.price);
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(new ErrorMessage(e.getMessage()));
@@ -59,6 +64,8 @@ public class PortfolioController {
             User user = getCurrentUser();
             PortfolioResponse response = portfolioService.sellEtf(user, request.symbol, request.quantity,
                     request.price);
+            auditLogService.log(user.getUsername(), "PORTFOLIO", "ETF verkauft",
+                    request.symbol + ", Menge: " + request.quantity + ", Kurs: " + request.price);
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(new ErrorMessage(e.getMessage()));

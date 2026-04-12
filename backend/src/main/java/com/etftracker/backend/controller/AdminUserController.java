@@ -5,7 +5,9 @@ import com.etftracker.backend.entity.Role;
 import com.etftracker.backend.entity.User;
 import com.etftracker.backend.repository.RoleRepository;
 import com.etftracker.backend.repository.UserRepository;
+import com.etftracker.backend.service.AuditLogService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,10 +25,13 @@ public class AdminUserController {
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
+    private final AuditLogService auditLogService;
 
-    public AdminUserController(UserRepository userRepository, RoleRepository roleRepository) {
+    public AdminUserController(UserRepository userRepository, RoleRepository roleRepository,
+            AuditLogService auditLogService) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
+        this.auditLogService = auditLogService;
     }
 
     @GetMapping
@@ -38,7 +43,7 @@ public class AdminUserController {
     }
 
     @PutMapping("/{id}/roles/admin")
-    public ResponseEntity<?> grantAdmin(@PathVariable Long id) {
+    public ResponseEntity<?> grantAdmin(@PathVariable Long id, Authentication auth) {
         User user = userRepository.findById(id)
                 .orElse(null);
         if (user == null) {
@@ -50,11 +55,12 @@ public class AdminUserController {
 
         user.getRoles().add(adminRole);
         User saved = userRepository.save(user);
+        auditLogService.log(auth.getName(), "ADMIN", "Admin-Rolle vergeben", "Benutzer: " + user.getUsername());
         return ResponseEntity.ok(toDto(saved));
     }
 
     @DeleteMapping("/{id}/roles/admin")
-    public ResponseEntity<?> revokeAdmin(@PathVariable Long id) {
+    public ResponseEntity<?> revokeAdmin(@PathVariable Long id, Authentication auth) {
         User user = userRepository.findById(id)
                 .orElse(null);
         if (user == null) {
@@ -68,6 +74,7 @@ public class AdminUserController {
         user.getRoles().add(userRole);
 
         User saved = userRepository.save(user);
+        auditLogService.log(auth.getName(), "ADMIN", "Admin-Rolle entzogen", "Benutzer: " + user.getUsername());
         return ResponseEntity.ok(toDto(saved));
     }
 

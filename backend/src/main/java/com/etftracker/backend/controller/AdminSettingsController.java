@@ -2,7 +2,9 @@ package com.etftracker.backend.controller;
 
 import com.etftracker.backend.dto.AppSettingDto;
 import com.etftracker.backend.service.AppSettingService;
+import com.etftracker.backend.service.AuditLogService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,9 +21,11 @@ import java.util.Map;
 public class AdminSettingsController {
 
     private final AppSettingService appSettingService;
+    private final AuditLogService auditLogService;
 
-    public AdminSettingsController(AppSettingService appSettingService) {
+    public AdminSettingsController(AppSettingService appSettingService, AuditLogService auditLogService) {
         this.appSettingService = appSettingService;
+        this.auditLogService = auditLogService;
     }
 
     @GetMapping
@@ -30,17 +34,21 @@ public class AdminSettingsController {
     }
 
     @PostMapping
-    public ResponseEntity<?> upsert(@RequestBody AppSettingDto dto) {
+    public ResponseEntity<?> upsert(@RequestBody AppSettingDto dto, Authentication auth) {
         try {
-            return ResponseEntity.ok(appSettingService.upsert(dto));
+            AppSettingDto saved = appSettingService.upsert(dto);
+            auditLogService.log(auth.getName(), "ADMIN", "Einstellung geändert",
+                    dto.getKey() + " = " + dto.getValue());
+            return ResponseEntity.ok(saved);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
         }
     }
 
     @DeleteMapping("/{key}")
-    public ResponseEntity<Void> delete(@PathVariable String key) {
+    public ResponseEntity<Void> delete(@PathVariable String key, Authentication auth) {
         appSettingService.delete(key);
+        auditLogService.log(auth.getName(), "ADMIN", "Einstellung gelöscht", "Key: " + key);
         return ResponseEntity.noContent().build();
     }
 }
