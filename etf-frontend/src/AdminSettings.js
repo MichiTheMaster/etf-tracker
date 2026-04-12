@@ -25,6 +25,10 @@ export default function AdminSettings() {
   const [auditPage, setAuditPage] = useState(0);
   const [auditTotalPages, setAuditTotalPages] = useState(0);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [auditCategory, setAuditCategory] = useState("");
+  const [auditUsername, setAuditUsername] = useState("");
+  const [auditFromDate, setAuditFromDate] = useState("");
+  const [auditToDate, setAuditToDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [userLoading, setUserLoading] = useState(true);
   const [error, setError] = useState("");
@@ -91,10 +95,37 @@ export default function AdminSettings() {
     loadAuditLog(0);
   }, []);
 
-  const loadAuditLog = async (page) => {
+  const toStartOfDayIso = (dateStr) => {
+    if (!dateStr) return "";
+    const date = new Date(`${dateStr}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+  };
+
+  const toEndOfDayIso = (dateStr) => {
+    if (!dateStr) return "";
+    const date = new Date(`${dateStr}T23:59:59.999`);
+    return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+  };
+
+  const loadAuditLog = async (page, overrides = {}) => {
     setAuditLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/admin/audit-log?page=${page}&size=50`, {
+      const resolvedCategory = overrides.auditCategory ?? auditCategory;
+      const resolvedUsername = overrides.auditUsername ?? auditUsername;
+      const resolvedFromDate = overrides.auditFromDate ?? auditFromDate;
+      const resolvedToDate = overrides.auditToDate ?? auditToDate;
+
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("size", "50");
+      if (resolvedCategory.trim()) params.set("category", resolvedCategory.trim());
+      if (resolvedUsername.trim()) params.set("username", resolvedUsername.trim());
+      const fromIso = toStartOfDayIso(resolvedFromDate);
+      const toIso = toEndOfDayIso(resolvedToDate);
+      if (fromIso) params.set("from", fromIso);
+      if (toIso) params.set("to", toIso);
+
+      const response = await fetch(`${API_BASE}/api/admin/audit-log?${params.toString()}`, {
         method: "GET",
         credentials: "include"
       });
@@ -191,6 +222,19 @@ export default function AdminSettings() {
     } catch (aliasError) {
       setError(aliasError?.message || "Alias konnte nicht geloescht werden.");
     }
+  };
+
+  const getAuditCategoryColor = (category) => {
+    if (category === "AUTH") return "info";
+    if (category === "ADMIN") return "warning";
+    return "default";
+  };
+
+  const formatAuditDetails = (details) => {
+    if (details === null || details === undefined || details === "") {
+      return "-";
+    }
+    return details;
   };
 
   const toggleAdminRole = async (user) => {
@@ -428,8 +472,70 @@ export default function AdminSettings() {
           <Typography variant="h6" sx={{ flex: 1 }}>
             Audit-Log
           </Typography>
+          <Button size="small" variant="contained" onClick={() => loadAuditLog(0)}>
+            Filter anwenden
+          </Button>
           <Button size="small" variant="outlined" onClick={() => loadAuditLog(auditPage)}>
             Aktualisieren
+          </Button>
+        </Stack>
+
+        <Stack direction="row" spacing={2} sx={{ mb: 2 }} flexWrap="wrap">
+          <TextField
+            label="Benutzer"
+            size="small"
+            value={auditUsername}
+            onChange={(event) => setAuditUsername(event.target.value)}
+          />
+          <TextField
+            select
+            SelectProps={{ native: true }}
+            label="Kategorie"
+            size="small"
+            value={auditCategory}
+            onChange={(event) => setAuditCategory(event.target.value)}
+            sx={{ minWidth: 170 }}
+          >
+            <option value="">Alle</option>
+            <option value="AUTH">AUTH</option>
+            <option value="ADMIN">ADMIN</option>
+            <option value="PORTFOLIO">PORTFOLIO</option>
+          </TextField>
+          <TextField
+            label="Von (Datum)"
+            size="small"
+            type="date"
+            value={auditFromDate}
+            onChange={(event) => setAuditFromDate(event.target.value)}
+            InputLabelProps={{ shrink: true }}
+          />
+          <TextField
+            label="Bis (Datum)"
+            size="small"
+            type="date"
+            value={auditToDate}
+            onChange={(event) => setAuditToDate(event.target.value)}
+            InputLabelProps={{ shrink: true }}
+          />
+          <Button
+            size="small"
+            color="secondary"
+            variant="text"
+            onClick={() => {
+              const cleared = {
+                auditCategory: "",
+                auditUsername: "",
+                auditFromDate: "",
+                auditToDate: ""
+              };
+              setAuditCategory(cleared.auditCategory);
+              setAuditUsername(cleared.auditUsername);
+              setAuditFromDate(cleared.auditFromDate);
+              setAuditToDate(cleared.auditToDate);
+              loadAuditLog(0, cleared);
+            }}
+          >
+            Zurücksetzen
           </Button>
         </Stack>
 
@@ -454,12 +560,12 @@ export default function AdminSettings() {
                 <TableCell>{entry.username}</TableCell>
                 <TableCell>
                   <Chip label={entry.category} size="small"
-                    color={entry.category === "AUTH" ? "info" : entry.category === "ADMIN" ? "warning" : "default"}
+                    color={getAuditCategoryColor(entry.category)}
                   />
                 </TableCell>
                 <TableCell>{entry.action}</TableCell>
                 <TableCell sx={{ color: "text.secondary", fontFamily: "monospace", fontSize: "0.78rem" }}>
-                  {entry.details ?? "-"}
+                  {formatAuditDetails(entry.details)}
                 </TableCell>
               </TableRow>
             ))}

@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.Map;
 
 @RestController
@@ -24,8 +25,18 @@ public class AuditLogController {
     @GetMapping
     public Map<String, Object> getAuditLog(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size) {
-        Page<AuditLog> result = auditLogService.getPage(page, Math.min(size, 200));
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to) {
+        Page<AuditLog> result = auditLogService.getPageFiltered(
+                page,
+                Math.min(size, 200),
+                category,
+                username,
+                from,
+                to);
         return Map.of(
                 "content", result.getContent().stream().map(this::toDto).toList(),
                 "totalPages", result.getTotalPages(),
