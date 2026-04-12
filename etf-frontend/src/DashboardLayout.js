@@ -204,15 +204,6 @@ export default function DashboardLayout({ children }) {
             <ListItemText primary="Performance" />
           </ListItemButton>
 
-          <ListItemButton
-            component={Link}
-            to="/me"
-            selected={currentPath === "/me"}
-          >
-            <ListItemIcon><PersonIcon /></ListItemIcon>
-            <ListItemText primary="Meine Daten" />
-          </ListItemButton>
-
           {isAdmin && (
             <ListItemButton
               component={Link}
