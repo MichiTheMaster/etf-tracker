@@ -53,11 +53,20 @@ export default function Portfolio() {
   }, []);
 
   const refreshQuotes = useCallback(async (forceRefresh) => {
+    if (!state) {
+      return;
+    }
+
     if (isRefreshingRef.current) {
       return;
     }
 
     const symbolsToRefresh = Object.keys(state?.holdings || {});
+    if (symbolsToRefresh.length === 0) {
+      setQuotes({});
+      setCountdown(AUTO_REFRESH_SECONDS);
+      return;
+    }
 
     isRefreshingRef.current = true;
     setIsRefreshing(true);
@@ -74,8 +83,11 @@ export default function Portfolio() {
   }, [state]);
 
   useEffect(() => {
+    if (!state) {
+      return;
+    }
     refreshQuotes(true);
-  }, [refreshQuotes]);
+  }, [state, refreshQuotes]);
 
   useEffect(() => {
     if (isRefreshing) {
