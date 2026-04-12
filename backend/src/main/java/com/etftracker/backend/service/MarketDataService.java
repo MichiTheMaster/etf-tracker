@@ -58,6 +58,7 @@ public class MarketDataService {
             "SPYD", "spyd.us");
 
     private static final Map<String, String> YAHOO_SYMBOLS = Map.ofEntries(
+            Map.entry("SPY", "SPY"),
             Map.entry("VWCE", "VWCE.DE"),
             Map.entry("EUNL", "EUNL.DE"),
             Map.entry("SXR8", "SXR8.DE"),
@@ -67,6 +68,9 @@ public class MarketDataService {
             Map.entry("IUSN", "IUSN.DE"),
             Map.entry("EIMI", "EIMI.L"),
             Map.entry("EMIM", "EIMI.L"));
+
+    private static final Map<String, String> SYMBOL_ALIASES = Map.ofEntries(
+            Map.entry("SXRS", "SXR8"));
 
     private static final Map<String, String> REVERSE_SYMBOLS;
 
@@ -350,7 +354,10 @@ public class MarketDataService {
             return;
         }
 
-        result.put(symbol, createQuote(symbol, FALLBACK.getOrDefault(symbol, 0.0), "fallback",
+        String canonical = canonicalSymbol(symbol);
+        double fallbackPrice = FALLBACK.getOrDefault(symbol.toUpperCase(Locale.ROOT),
+                FALLBACK.getOrDefault(canonical, 0.0));
+        result.put(symbol, createQuote(symbol, fallbackPrice, "fallback",
                 resolveTer(symbol, null), debugEnabled, "fallback", "fallback-static", "fallback"));
     }
 
@@ -509,19 +516,56 @@ public class MarketDataService {
 
     private Set<String> buildYahooCandidates(String symbol) {
         String normalized = symbol.trim().toUpperCase(Locale.ROOT);
+        String canonical = canonicalSymbol(normalized);
         LinkedHashSet<String> candidates = new LinkedHashSet<>();
 
-        String preferred = YAHOO_SYMBOLS.get(normalized);
+        String preferred = YAHOO_SYMBOLS.get(canonical);
         if (preferred != null && !preferred.isBlank()) {
             candidates.add(preferred);
         }
 
+        String preferredExact = YAHOO_SYMBOLS.get(normalized);
+        if (preferredExact != null && !preferredExact.isBlank()) {
+            candidates.add(preferredExact);
+        }
+
         candidates.add(normalized);
+        candidates.add(canonical);
+
+        if (normalized.contains(".")) {
+            String base = normalized.substring(0, normalized.indexOf('.'));
+            candidates.add(base);
+            String aliased = SYMBOL_ALIASES.getOrDefault(base, base);
+            candidates.add(aliased);
+        }
+
         candidates.add(normalized + ".DE");
         candidates.add(normalized + ".F");
         candidates.add(normalized + ".L");
+        candidates.add(canonical + ".DE");
+        candidates.add(canonical + ".F");
+        candidates.add(canonical + ".L");
 
         return candidates;
+    }
+
+    private String canonicalSymbol(String symbol) {
+        if (symbol == null) {
+            return "";
+        }
+
+        String normalized = symbol.trim().toUpperCase(Locale.ROOT);
+        if (normalized.isBlank()) {
+            return normalized;
+        }
+
+        String base = normalized;
+        int dotPos = normalized.indexOf('.');
+        if (dotPos > 0) {
+            base = normalized.substring(0, dotPos);
+        }
+
+        return SYMBOL_ALIASES.getOrDefault(base, base);
     }
 
     private Double extractTerFromMap(Map<?, ?> map) {
@@ -653,9 +697,13 @@ public class MarketDataService {
             return null;
         }
         String normalized = symbol.toUpperCase(Locale.ROOT);
+        String canonical = canonicalSymbol(normalized);
         Double fallbackTer = terFallbacks.get(normalized);
         if (fallbackTer == null) {
-            missingTerSymbols.add(normalized);
+            fallbackTer = terFallbacks.get(canonical);
+        }
+        if (fallbackTer == null) {
+            missingTerSymbols.add(canonical);
         }
         return fallbackTer;
     }
