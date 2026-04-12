@@ -15,6 +15,7 @@ import java.util.Map;
 public class AppSettingService {
 
     private static final String MARKET_ALIAS_PREFIX = "market.alias.";
+    private static final String MARKET_FALLBACK_PRICE_PREFIX = "market.fallbackPrice.";
 
     private final AppSettingRepository appSettingRepository;
 
@@ -69,6 +70,27 @@ public class AppSettingService {
         return aliases;
     }
 
+    public Map<String, Double> getMarketFallbackPrices() {
+        Map<String, Double> fallbackPrices = new LinkedHashMap<>();
+        List<AppSetting> storedPrices = appSettingRepository.findByKeyStartingWith(MARKET_FALLBACK_PRICE_PREFIX);
+        for (AppSetting entry : storedPrices) {
+            String rawSymbol = entry.getKey().substring(MARKET_FALLBACK_PRICE_PREFIX.length()).trim();
+            String rawPrice = entry.getValue() == null ? "" : entry.getValue().trim();
+            if (rawSymbol.isBlank() || rawPrice.isBlank()) {
+                continue;
+            }
+            try {
+                double parsed = Double.parseDouble(rawPrice);
+                if (parsed > 0) {
+                    fallbackPrices.put(rawSymbol.toUpperCase(Locale.ROOT), parsed);
+                }
+            } catch (NumberFormatException ignored) {
+                // Ignore malformed values so one bad setting does not break quote requests.
+            }
+        }
+        return fallbackPrices;
+    }
+
     @Transactional
     public AppSettingDto upsert(AppSettingDto dto) {
         if (dto == null || dto.getKey() == null || dto.getKey().isBlank()) {
@@ -82,6 +104,21 @@ public class AppSettingService {
         setting.setValue(value);
         AppSetting saved = appSettingRepository.save(setting);
         return new AppSettingDto(saved.getKey(), saved.getValue());
+    }
+
+    @Transactional
+    public void upsertIfAbsent(String key, String value) {
+        if (key == null || key.isBlank()) {
+            return;
+        }
+
+        String normalizedKey = key.trim();
+        if (appSettingRepository.existsById(normalizedKey)) {
+            return;
+        }
+
+        String normalizedValue = value == null ? "" : value.trim();
+        appSettingRepository.save(new AppSetting(normalizedKey, normalizedValue));
     }
 
     @Transactional

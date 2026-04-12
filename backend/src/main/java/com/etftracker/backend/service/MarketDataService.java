@@ -83,7 +83,7 @@ public class MarketDataService {
         REVERSE_SYMBOLS = Collections.unmodifiableMap(rev);
     }
 
-    private static final Map<String, Double> FALLBACK = Map.ofEntries(
+    private static final Map<String, Double> FALLBACK_DEFAULTS = Map.ofEntries(
             Map.entry("SPY", 520.0),
             Map.entry("VWCE", 116.2),
             Map.entry("EUNL", 89.45),
@@ -275,6 +275,7 @@ public class MarketDataService {
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private void fetchFromStooq(List<String> symbols, Map<String, QuoteResponse> result, boolean debugEnabled) {
         boolean fallbackPricesEnabled = isFallbackPricesEnabled();
+        Map<String, Double> fallbackPrices = getFallbackPrices();
         long now = System.currentTimeMillis();
         for (String symbol : symbols) {
             try {
@@ -292,20 +293,20 @@ public class MarketDataService {
                 String body = response.getBody();
 
                 if (body == null || body.isBlank()) {
-                    putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled);
+                    putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled, fallbackPrices);
                     continue;
                 }
 
                 if (body.toLowerCase(Locale.ROOT).contains("exceeded the daily hits limit")) {
                     log.warn("Stooq daily limit reached. Falling back to Yahoo for {}", symbol);
-                    putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled);
+                    putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled, fallbackPrices);
                     continue;
                 }
 
                 Matcher symbolMatcher = STOOQ_SYMBOL_PATTERN.matcher(body);
                 Matcher closeMatcher = STOOQ_CLOSE_PATTERN.matcher(body);
                 if (!symbolMatcher.find() || !closeMatcher.find()) {
-                    putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled);
+                    putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled, fallbackPrices);
                     continue;
                 }
 
@@ -333,11 +334,11 @@ public class MarketDataService {
                     result.put(symbol, createQuote(symbol, price, "live", ter, debugEnabled,
                             "stooq", stooqSymbol.toUpperCase(Locale.ROOT), terSource));
                 } else {
-                    putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled);
+                    putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled, fallbackPrices);
                 }
             } catch (Exception e) {
                 log.warn("Stooq request failed for {}: {}", symbol, e.getMessage());
-                putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled);
+                putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled, fallbackPrices);
             }
         }
 
@@ -346,8 +347,8 @@ public class MarketDataService {
                 String canonical = canonicalSymbol(sym);
                 result.computeIfAbsent(sym,
                         s -> createQuote(s,
-                                FALLBACK.getOrDefault(s.toUpperCase(Locale.ROOT),
-                                        FALLBACK.getOrDefault(canonical, 0.0)),
+                                fallbackPrices.getOrDefault(s.toUpperCase(Locale.ROOT),
+                                        fallbackPrices.getOrDefault(canonical, 0.0)),
                                 "demo", resolveTer(s, null), debugEnabled,
                                 "fallback", "fallback-static", "fallback"));
             } else {
@@ -359,7 +360,7 @@ public class MarketDataService {
     }
 
     private void putYahooOrDemo(String symbol, Map<String, QuoteResponse> result, long now, boolean debugEnabled,
-            boolean fallbackPricesEnabled) {
+            boolean fallbackPricesEnabled, Map<String, Double> fallbackPrices) {
         YahooResult yahooResult = fetchFromYahoo(symbol);
         if (yahooResult != null) {
             Double ter = resolveTer(symbol, yahooResult.ter());
@@ -385,8 +386,8 @@ public class MarketDataService {
         }
 
         String canonical = canonicalSymbol(symbol);
-        double fallbackPrice = FALLBACK.getOrDefault(symbol.toUpperCase(Locale.ROOT),
-                FALLBACK.getOrDefault(canonical, 0.0));
+        double fallbackPrice = fallbackPrices.getOrDefault(symbol.toUpperCase(Locale.ROOT),
+                fallbackPrices.getOrDefault(canonical, 0.0));
         result.put(symbol, createQuote(symbol, fallbackPrice, "fallback",
                 resolveTer(symbol, null), debugEnabled, "fallback", "fallback-static", "fallback"));
     }
@@ -604,6 +605,12 @@ public class MarketDataService {
         return aliases;
     }
 
+    private Map<String, Double> getFallbackPrices() {
+        Map<String, Double> fallbackPrices = new HashMap<>(FALLBACK_DEFAULTS);
+        fallbackPrices.putAll(appSettingService.getMarketFallbackPrices());
+        return fallbackPrices;
+    }
+
     private boolean isFallbackPricesEnabled() {
         return appSettingService.getBoolean("market.fallbackPricesEnabled", fallbackPricesEnabledDefault);
     }
@@ -724,7 +731,7 @@ public class MarketDataService {
     private void useFallback(List<String> symbols, Map<String, QuoteResponse> result) {
         for (String sym : symbols) {
             result.computeIfAbsent(sym,
-                    s -> createQuote(s, FALLBACK.getOrDefault(s, 0.0), "fallback", resolveTer(s, null), false,
+                    s -> createQuote(s, FALLBACK_DEFAULTS.getOrDefault(s, 0.0), "fallback", resolveTer(s, null), false,
                             "fallback", "fallback-static", "fallback"));
         }
     }

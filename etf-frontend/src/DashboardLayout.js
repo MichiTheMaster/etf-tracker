@@ -21,6 +21,18 @@ const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scr
 export default function DashboardLayout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const [isAdmin, setIsAdmin] = useState(() => {
+    try {
+      const raw = localStorage.getItem("sessionRoles");
+      if (!raw) {
+        return false;
+      }
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) && parsed.includes("ADMIN");
+    } catch {
+      return false;
+    }
+  });
   const [inactiveElapsedMs, setInactiveElapsedMs] = useState(0);
   const logoutTimerRef = useRef(null);
   const tickerRef = useRef(null);
@@ -87,6 +99,46 @@ export default function DashboardLayout({ children }) {
       );
     };
   }, [resetInactivityTimer]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadUserRoles = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/me`, {
+          method: "GET",
+          credentials: "include"
+        });
+
+        if (!response.ok) {
+          if (isMounted) {
+            setIsAdmin(false);
+          }
+          return;
+        }
+
+        const payload = await response.json();
+        const roles = Array.isArray(payload?.roles)
+          ? payload.roles.map((role) => String(role).toUpperCase())
+          : [];
+        localStorage.setItem("sessionRoles", JSON.stringify(roles));
+
+        if (isMounted) {
+          setIsAdmin(roles.includes("ADMIN"));
+        }
+      } catch {
+        if (isMounted) {
+          setIsAdmin(false);
+        }
+      }
+    };
+
+    loadUserRoles();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const warningActive = inactiveElapsedMs >= INACTIVITY_WARNING_MS;
   const remainingMs = Math.max(INACTIVITY_TIMEOUT_MS - inactiveElapsedMs, 0);
@@ -161,14 +213,16 @@ export default function DashboardLayout({ children }) {
             <ListItemText primary="Meine Daten" />
           </ListItemButton>
 
-          <ListItemButton
-            component={Link}
-            to="/admin"
-            selected={currentPath === "/admin"}
-          >
-            <ListItemIcon><SettingsIcon /></ListItemIcon>
-            <ListItemText primary="Admin" />
-          </ListItemButton>
+          {isAdmin && (
+            <ListItemButton
+              component={Link}
+              to="/admin"
+              selected={currentPath === "/admin"}
+            >
+              <ListItemIcon><SettingsIcon /></ListItemIcon>
+              <ListItemText primary="Admin" />
+            </ListItemButton>
+          )}
         </List>
 
         <Box sx={{ flexGrow: 1 }} />
@@ -238,16 +292,18 @@ export default function DashboardLayout({ children }) {
               <PersonIcon />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Admin" arrow>
-            <IconButton
-              color="inherit"
-              component={Link}
-              to="/admin"
-              sx={{ mr: 0.5 }}
-            >
-              <SettingsIcon />
-            </IconButton>
-          </Tooltip>
+          {isAdmin && (
+            <Tooltip title="Admin" arrow>
+              <IconButton
+                color="inherit"
+                component={Link}
+                to="/admin"
+                sx={{ mr: 0.5 }}
+              >
+                <SettingsIcon />
+              </IconButton>
+            </Tooltip>
+          )}
           <Tooltip title="Logout" arrow>
             <IconButton color="inherit" onClick={handleLogout}>
               <LogoutIcon />

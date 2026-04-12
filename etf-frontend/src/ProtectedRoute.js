@@ -2,22 +2,22 @@ import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { API_BASE } from "./apiBase";
 
-export default function ProtectedRoute({ children }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(null);
+export default function ProtectedRoute({ children, requiredRole }) {
+  const [status, setStatus] = useState("checking");
 
   useEffect(() => {
     let isMounted = true;
     const hasClientSession = localStorage.getItem("sessionAuthenticated") === "1";
 
     if (localStorage.getItem("forceLoggedOut") === "1") {
-      setIsAuthenticated(false);
+      setStatus("unauthenticated");
       return () => {
         isMounted = false;
       };
     }
 
     if (!hasClientSession) {
-      setIsAuthenticated(false);
+      setStatus("unauthenticated");
       return () => {
         isMounted = false;
       };
@@ -34,18 +34,38 @@ export default function ProtectedRoute({ children }) {
           signal: controller.signal
         });
 
-        if (isMounted) {
-          setIsAuthenticated(response.ok);
-        }
-
         if (!response.ok) {
           localStorage.removeItem("sessionAuthenticated");
+          localStorage.removeItem("sessionRoles");
+          if (isMounted) {
+            setStatus("unauthenticated");
+          }
+          return;
+        }
+
+        const payload = await response.json();
+        const roles = Array.isArray(payload?.roles)
+          ? payload.roles.map((role) => String(role).toUpperCase())
+          : [];
+        localStorage.setItem("sessionRoles", JSON.stringify(roles));
+
+        if (!requiredRole) {
+          if (isMounted) {
+            setStatus("authorized");
+          }
+          return;
+        }
+
+        const hasRequiredRole = roles.includes(String(requiredRole).toUpperCase());
+        if (isMounted) {
+          setStatus(hasRequiredRole ? "authorized" : "forbidden");
         }
       } catch (error) {
         localStorage.removeItem("sessionAuthenticated");
+        localStorage.removeItem("sessionRoles");
 
         if (isMounted) {
-          setIsAuthenticated(false);
+          setStatus("unauthenticated");
         }
       } finally {
         clearTimeout(timeoutId);
@@ -57,14 +77,18 @@ export default function ProtectedRoute({ children }) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [requiredRole]);
 
-  if (isAuthenticated === null) {
+  if (status === "checking") {
     return <div>Authentifizierung wird geprueft...</div>;
   }
 
-  if (!isAuthenticated) {
+  if (status === "unauthenticated") {
     return <Navigate to="/login" replace />;
+  }
+
+  if (status === "forbidden") {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return children;

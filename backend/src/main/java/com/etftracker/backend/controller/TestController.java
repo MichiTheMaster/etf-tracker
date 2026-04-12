@@ -26,7 +26,6 @@ public class TestController {
                 "username", user.getUsername(),
                 "email", user.getEmail(),
                 "emailVerified", user.isEmailVerified(),
-                "roles", user.getRoles().stream().map(role -> role.getName()).sorted().toList()
-        );
+                "roles", user.getRoles().stream().map(role -> role.getName()).sorted().toList());
     }
 }
