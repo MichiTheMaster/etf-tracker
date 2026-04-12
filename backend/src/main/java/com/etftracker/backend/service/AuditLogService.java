@@ -9,6 +9,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.List;
 
 @Service
 public class AuditLogService {
@@ -31,6 +32,21 @@ public class AuditLogService {
 
     public Page<AuditLog> getPageFiltered(int page, int size, String category, String username, Instant from,
             Instant to) {
+        Specification<AuditLog> spec = buildFilterSpecification(category, username, from, to);
+
+        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, TIMESTAMP_FIELD));
+        return auditLogRepository.findAll(spec, pageable);
+    }
+
+    public List<AuditLog> getListFiltered(int limit, String category, String username, Instant from, Instant to) {
+        Specification<AuditLog> spec = buildFilterSpecification(category, username, from, to);
+        Sort sort = Sort.by(Sort.Direction.DESC, TIMESTAMP_FIELD);
+        int cappedLimit = Math.max(1, Math.min(limit, 10000));
+        return auditLogRepository.findAll(spec, sort).stream().limit(cappedLimit).toList();
+    }
+
+    private Specification<AuditLog> buildFilterSpecification(String category, String username, Instant from,
+            Instant to) {
         Specification<AuditLog> spec = (root, query, cb) -> cb.conjunction();
 
         if (category != null && !category.isBlank()) {
@@ -51,7 +67,6 @@ public class AuditLogService {
             spec = spec.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get(TIMESTAMP_FIELD), to));
         }
 
-        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, TIMESTAMP_FIELD));
-        return auditLogRepository.findAll(spec, pageable);
+        return spec;
     }
 }

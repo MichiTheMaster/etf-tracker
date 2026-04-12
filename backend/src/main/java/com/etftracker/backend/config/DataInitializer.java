@@ -34,6 +34,11 @@ public class DataInitializer implements CommandLineRunner {
             System.out.println("✔ Rolle ADMIN angelegt");
         }
 
+        if (roleRepository.findByName("READONLY_ADMIN").isEmpty()) {
+            roleRepository.save(new Role("READONLY_ADMIN"));
+            System.out.println("✔ Rolle READONLY_ADMIN angelegt");
+        }
+
         seedAppSettings();
     }
 

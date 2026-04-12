@@ -7,6 +7,7 @@ import com.etftracker.backend.repository.RoleRepository;
 import com.etftracker.backend.repository.UserRepository;
 import com.etftracker.backend.service.AuditLogService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,6 +44,7 @@ public class AdminUserController {
     }
 
     @PutMapping("/{id}/roles/admin")
+    @PreAuthorize("hasAuthority('ADMIN')")
     public ResponseEntity<?> grantAdmin(@PathVariable Long id, Authentication auth) {
         User user = userRepository.findById(id)
                 .orElse(null);
@@ -50,9 +52,8 @@ public class AdminUserController {
             return ResponseEntity.notFound().build();
         }
 
-        Role adminRole = roleRepository.findByName("ADMIN")
-                .orElseThrow(() -> new IllegalStateException("Role ADMIN not found"));
-
+        Role adminRole = getRoleByName("ADMIN");
+        user.getRoles().removeIf(role -> "READONLY_ADMIN".equalsIgnoreCase(role.getName()));
         user.getRoles().add(adminRole);
         User saved = userRepository.save(user);
         auditLogService.log(auth.getName(), "ADMIN", "Admin-Rolle vergeben", "Benutzer: " + user.getUsername());
@@ -60,6 +61,7 @@ public class AdminUserController {
     }
 
     @DeleteMapping("/{id}/roles/admin")
+    @PreAuthorize("hasAuthority('ADMIN')")
     public ResponseEntity<?> revokeAdmin(@PathVariable Long id, Authentication auth) {
         User user = userRepository.findById(id)
                 .orElse(null);
@@ -67,8 +69,7 @@ public class AdminUserController {
             return ResponseEntity.notFound().build();
         }
 
-        Role userRole = roleRepository.findByName("USER")
-                .orElseThrow(() -> new IllegalStateException("Role USER not found"));
+        Role userRole = getRoleByName("USER");
 
         user.getRoles().removeIf(role -> "ADMIN".equalsIgnoreCase(role.getName()));
         user.getRoles().add(userRole);
@@ -76,6 +77,47 @@ public class AdminUserController {
         User saved = userRepository.save(user);
         auditLogService.log(auth.getName(), "ADMIN", "Admin-Rolle entzogen", "Benutzer: " + user.getUsername());
         return ResponseEntity.ok(toDto(saved));
+    }
+
+    @PutMapping("/{id}/roles/readonly-admin")
+    @PreAuthorize("hasAuthority('ADMIN')")
+    public ResponseEntity<?> grantReadonlyAdmin(@PathVariable Long id, Authentication auth) {
+        User user = userRepository.findById(id)
+                .orElse(null);
+        if (user == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Role readonlyRole = getRoleByName("READONLY_ADMIN");
+        user.getRoles().removeIf(role -> "ADMIN".equalsIgnoreCase(role.getName()));
+        user.getRoles().add(readonlyRole);
+        User saved = userRepository.save(user);
+        auditLogService.log(auth.getName(), "ADMIN", "READONLY_ADMIN-Rolle vergeben",
+                "Benutzer: " + user.getUsername());
+        return ResponseEntity.ok(toDto(saved));
+    }
+
+    @DeleteMapping("/{id}/roles/readonly-admin")
+    @PreAuthorize("hasAuthority('ADMIN')")
+    public ResponseEntity<?> revokeReadonlyAdmin(@PathVariable Long id, Authentication auth) {
+        User user = userRepository.findById(id)
+                .orElse(null);
+        if (user == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Role userRole = getRoleByName("USER");
+        user.getRoles().removeIf(role -> "READONLY_ADMIN".equalsIgnoreCase(role.getName()));
+        user.getRoles().add(userRole);
+        User saved = userRepository.save(user);
+        auditLogService.log(auth.getName(), "ADMIN", "READONLY_ADMIN-Rolle entzogen",
+                "Benutzer: " + user.getUsername());
+        return ResponseEntity.ok(toDto(saved));
+    }
+
+    private Role getRoleByName(String roleName) {
+        return roleRepository.findByName(roleName)
+                .orElseThrow(() -> new IllegalStateException("Role " + roleName + " not found"));
     }
 
     private AdminUserDto toDto(User user) {

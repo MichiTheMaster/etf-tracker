@@ -4,6 +4,7 @@ import com.etftracker.backend.dto.AppSettingDto;
 import com.etftracker.backend.service.AppSettingService;
 import com.etftracker.backend.service.AuditLogService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +35,7 @@ public class AdminSettingsController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('ADMIN')")
     public ResponseEntity<?> upsert(@RequestBody AppSettingDto dto, Authentication auth) {
         try {
             AppSettingDto saved = appSettingService.upsert(dto);
@@ -46,6 +48,7 @@ public class AdminSettingsController {
     }
 
     @DeleteMapping("/{key}")
+    @PreAuthorize("hasAuthority('ADMIN')")
     public ResponseEntity<Void> delete(@PathVariable String key, Authentication auth) {
         appSettingService.delete(key);
         auditLogService.log(auth.getName(), "ADMIN", "Einstellung gelöscht", "Key: " + key);

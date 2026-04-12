@@ -56,7 +56,10 @@ export default function ProtectedRoute({ children, requiredRole }) {
           return;
         }
 
-        const hasRequiredRole = roles.includes(String(requiredRole).toUpperCase());
+        const requiredRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+        const hasRequiredRole = requiredRoles
+          .map((role) => String(role).toUpperCase())
+          .some((role) => roles.includes(role));
         if (isMounted) {
           setStatus(hasRequiredRole ? "authorized" : "forbidden");
         }

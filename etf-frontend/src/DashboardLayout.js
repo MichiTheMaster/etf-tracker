@@ -21,14 +21,15 @@ const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scr
 export default function DashboardLayout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [isAdmin, setIsAdmin] = useState(() => {
+  const [canAccessAdmin, setCanAccessAdmin] = useState(() => {
     try {
       const raw = localStorage.getItem("sessionRoles");
       if (!raw) {
         return false;
       }
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) && parsed.includes("ADMIN");
+      return Array.isArray(parsed)
+        && (parsed.includes("ADMIN") || parsed.includes("READONLY_ADMIN"));
     } catch {
       return false;
     }
@@ -147,7 +148,7 @@ export default function DashboardLayout({ children }) {
 
         if (!response.ok) {
           if (isMounted) {
-            setIsAdmin(false);
+            setCanAccessAdmin(false);
           }
           return;
         }
@@ -159,11 +160,11 @@ export default function DashboardLayout({ children }) {
         localStorage.setItem("sessionRoles", JSON.stringify(roles));
 
         if (isMounted) {
-          setIsAdmin(roles.includes("ADMIN"));
+          setCanAccessAdmin(roles.includes("ADMIN") || roles.includes("READONLY_ADMIN"));
         }
       } catch {
         if (isMounted) {
-          setIsAdmin(false);
+          setCanAccessAdmin(false);
         }
       }
     };
@@ -239,7 +240,7 @@ export default function DashboardLayout({ children }) {
             <ListItemText primary="Performance" />
           </ListItemButton>
 
-          {isAdmin && (
+          {canAccessAdmin && (
             <ListItemButton
               component={Link}
               to="/admin"
@@ -344,7 +345,7 @@ export default function DashboardLayout({ children }) {
               <PersonIcon />
             </IconButton>
           </Tooltip>
-          {isAdmin && (
+          {canAccessAdmin && (
             <Tooltip title="Admin" arrow>
               <IconButton
                 color="inherit"

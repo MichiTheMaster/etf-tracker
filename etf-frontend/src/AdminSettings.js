@@ -34,6 +34,7 @@ export default function AdminSettings() {
   const [auditToDate, setAuditToDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [userLoading, setUserLoading] = useState(true);
+  const [canWriteAdmin, setCanWriteAdmin] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [fallbackEnabled, setFallbackEnabled] = useState("true");
@@ -104,11 +105,41 @@ export default function AdminSettings() {
     }
   };
 
+  const loadCurrentUserPermissions = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/me`, {
+        method: "GET",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        setCanWriteAdmin(false);
+        return;
+      }
+
+      const data = await response.json();
+      const roles = Array.isArray(data?.roles)
+        ? data.roles.map((role) => String(role).toUpperCase())
+        : [];
+      setCanWriteAdmin(roles.includes("ADMIN"));
+    } catch {
+      setCanWriteAdmin(false);
+    }
+  };
+
   useEffect(() => {
+    loadCurrentUserPermissions();
     loadSettings();
     loadUsers();
     loadAuditLog(0);
   }, []);
+
+  const formatDateInput = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
 
   const toStartOfDayIso = (dateStr) => {
     if (!dateStr) return "";
@@ -153,6 +184,60 @@ export default function AdminSettings() {
       setError(err?.message || "Audit-Log konnte nicht geladen werden.");
     } finally {
       setAuditLoading(false);
+    }
+  };
+
+  const applyAuditPreset = (days) => {
+    const now = new Date();
+    const from = new Date(now);
+    from.setDate(now.getDate() - days + 1);
+
+    const preset = {
+      auditFromDate: formatDateInput(from),
+      auditToDate: formatDateInput(now)
+    };
+
+    setAuditFromDate(preset.auditFromDate);
+    setAuditToDate(preset.auditToDate);
+    loadAuditLog(0, preset);
+  };
+
+  const exportAuditCsv = async () => {
+    setError("");
+    setMessage("");
+
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "5000");
+      if (auditCategory.trim()) params.set("category", auditCategory.trim());
+      if (auditUsername.trim()) params.set("username", auditUsername.trim());
+      const fromIso = toStartOfDayIso(auditFromDate);
+      const toIso = toEndOfDayIso(auditToDate);
+      if (fromIso) params.set("from", fromIso);
+      if (toIso) params.set("to", toIso);
+
+      const response = await fetch(`${API_BASE}/api/admin/audit-log/export?${params.toString()}`, {
+        method: "GET",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(`CSV-Export fehlgeschlagen (${response.status})`);
+      }
+
+      const csvText = await response.text();
+      const blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "audit-log.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMessage("Audit-Log als CSV exportiert.");
+    } catch (exportError) {
+      setError(exportError?.message || "CSV-Export fehlgeschlagen.");
     }
   };
 
@@ -307,6 +392,34 @@ export default function AdminSettings() {
     }
   };
 
+  const toggleReadonlyAdminRole = async (user) => {
+    setError("");
+    setMessage("");
+
+    const roles = Array.isArray(user?.roles) ? user.roles : [];
+    const isReadonlyAdmin = roles.includes("READONLY_ADMIN");
+    const method = isReadonlyAdmin ? "DELETE" : "PUT";
+
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(user.id)}/roles/readonly-admin`, {
+        method,
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(`Rolle konnte nicht aktualisiert werden (${response.status})`);
+      }
+
+      setMessage(isReadonlyAdmin
+        ? `READONLY_ADMIN-Rolle fuer ${user.username} entfernt.`
+        : `READONLY_ADMIN-Rolle fuer ${user.username} vergeben.`);
+
+      await loadUsers();
+    } catch (roleError) {
+      setError(roleError?.message || "Rolle konnte nicht aktualisiert werden.");
+    }
+  };
+
   return (
     <Stack spacing={2}>
       <Paper sx={{ p: 3 }}>
@@ -349,6 +462,7 @@ export default function AdminSettings() {
             value={inactivityTimeoutMinutes}
             onChange={(event) => setInactivityTimeoutMinutes(event.target.value)}
             sx={{ width: 220 }}
+            disabled={!canWriteAdmin}
           />
           <TextField
             label="Warnung ab (Minuten)"
@@ -358,11 +472,17 @@ export default function AdminSettings() {
             value={inactivityWarningMinutes}
             onChange={(event) => setInactivityWarningMinutes(event.target.value)}
             sx={{ width: 220 }}
+            disabled={!canWriteAdmin}
           />
-          <Button variant="contained" onClick={saveInactivitySettings}>
+          <Button variant="contained" onClick={saveInactivitySettings} disabled={!canWriteAdmin}>
             Speichern
           </Button>
         </Stack>
+        {!canWriteAdmin && (
+          <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
+            READONLY_ADMIN: Nur Ansicht, keine Aenderungen erlaubt.
+          </Typography>
+        )}
       </Paper>
 
       <Paper sx={{ p: 3 }}>
@@ -383,11 +503,12 @@ export default function AdminSettings() {
             value={fallbackEnabled}
             onChange={(event) => setFallbackEnabled(event.target.value)}
             sx={{ minWidth: 220 }}
+            disabled={!canWriteAdmin}
           >
             <option value="true">Aktiviert (empfohlen)</option>
             <option value="false">Deaktiviert (strict live)</option>
           </TextField>
-          <Button variant="contained" onClick={saveFallbackSetting}>
+          <Button variant="contained" onClick={saveFallbackSetting} disabled={!canWriteAdmin}>
             Speichern
           </Button>
         </Stack>
@@ -404,14 +525,16 @@ export default function AdminSettings() {
             size="small"
             value={aliasBase}
             onChange={(event) => setAliasBase(event.target.value)}
+            disabled={!canWriteAdmin}
           />
           <TextField
             label="Zielsymbol (z.B. SXR8)"
             size="small"
             value={aliasTarget}
             onChange={(event) => setAliasTarget(event.target.value)}
+            disabled={!canWriteAdmin}
           />
-          <Button variant="contained" onClick={addAlias}>
+          <Button variant="contained" onClick={addAlias} disabled={!canWriteAdmin}>
             Alias speichern
           </Button>
         </Stack>
@@ -430,7 +553,7 @@ export default function AdminSettings() {
                 <TableCell>{alias.base}</TableCell>
                 <TableCell>{alias.target}</TableCell>
                 <TableCell align="right">
-                  <Button color="error" size="small" onClick={() => removeAlias(alias.base)}>
+                  <Button color="error" size="small" onClick={() => removeAlias(alias.base)} disabled={!canWriteAdmin}>
                     Loeschen
                   </Button>
                 </TableCell>
@@ -477,9 +600,20 @@ export default function AdminSettings() {
                       size="small"
                       variant={isAdmin ? "outlined" : "contained"}
                       color={isAdmin ? "warning" : "primary"}
+                      disabled={!canWriteAdmin}
                       onClick={() => toggleAdminRole(user)}
                     >
                       {isAdmin ? "Admin entziehen" : "Admin geben"}
+                    </Button>
+                    <Button
+                      size="small"
+                      variant={roles.includes("READONLY_ADMIN") ? "outlined" : "contained"}
+                      color={roles.includes("READONLY_ADMIN") ? "warning" : "secondary"}
+                      disabled={!canWriteAdmin}
+                      onClick={() => toggleReadonlyAdminRole(user)}
+                      sx={{ ml: 1 }}
+                    >
+                      {roles.includes("READONLY_ADMIN") ? "Readonly entziehen" : "Readonly geben"}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -543,6 +677,9 @@ export default function AdminSettings() {
           <Typography variant="h6" sx={{ flex: 1 }}>
             Audit-Log
           </Typography>
+          <Button size="small" variant="outlined" onClick={exportAuditCsv}>
+            CSV Export
+          </Button>
           <Button size="small" variant="contained" onClick={() => loadAuditLog(0)}>
             Filter anwenden
           </Button>
@@ -606,6 +743,27 @@ export default function AdminSettings() {
             }}
           >
             Zurücksetzen
+          </Button>
+          <Button
+            size="small"
+            variant="text"
+            onClick={() => applyAuditPreset(1)}
+          >
+            Heute
+          </Button>
+          <Button
+            size="small"
+            variant="text"
+            onClick={() => applyAuditPreset(7)}
+          >
+            7 Tage
+          </Button>
+          <Button
+            size="small"
+            variant="text"
+            onClick={() => applyAuditPreset(30)}
+          >
+            30 Tage
           </Button>
         </Stack>
 

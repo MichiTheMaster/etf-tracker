@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Box, Button, Chip, IconButton, InputAdornment, Paper, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, IconButton, InputAdornment, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
 import { Visibility, VisibilityOff } from "@mui/icons-material";
 import { API_BASE } from "./apiBase";
 
@@ -18,6 +18,9 @@ export default function UserData() {
   const [pwError, setPwError] = useState("");
   const [pwSuccess, setPwSuccess] = useState("");
   const [pwLoading, setPwLoading] = useState(false);
+  const [sessions, setSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionMessage, setSessionMessage] = useState("");
 
   function validatePw(pw) {
     if (!pw || pw.length < 8) return "Mindestens 8 Zeichen";
@@ -82,6 +85,76 @@ export default function UserData() {
 
     loadProfile();
   }, []);
+
+  const loadSessions = async () => {
+    setSessionsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/me/sessions`, {
+        method: "GET",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error("Sessions konnten nicht geladen werden.");
+      }
+
+      const data = await response.json();
+      setSessions(Array.isArray(data) ? data : []);
+    } catch {
+      setSessions([]);
+    } finally {
+      setSessionsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSessions();
+  }, []);
+
+  const revokeSession = async (sessionId, isCurrent) => {
+    setSessionMessage("");
+    try {
+      const response = await fetch(`${API_BASE}/api/me/sessions/${encodeURIComponent(sessionId)}`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error("Session konnte nicht beendet werden.");
+      }
+
+      if (isCurrent) {
+        localStorage.removeItem("sessionAuthenticated");
+        localStorage.setItem("forceLoggedOut", "1");
+        window.location.hash = "#/login";
+        return;
+      }
+
+      setSessionMessage("Session wurde beendet.");
+      await loadSessions();
+    } catch {
+      setSessionMessage("Session konnte nicht beendet werden.");
+    }
+  };
+
+  const revokeOtherSessions = async () => {
+    setSessionMessage("");
+    try {
+      const response = await fetch(`${API_BASE}/api/me/sessions/others`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error("Andere Sessions konnten nicht beendet werden.");
+      }
+
+      setSessionMessage("Alle anderen Sessions wurden beendet.");
+      await loadSessions();
+    } catch {
+      setSessionMessage("Andere Sessions konnten nicht beendet werden.");
+    }
+  };
 
   const clientData = useMemo(() => {
     if (typeof window === "undefined") {
@@ -150,6 +223,75 @@ export default function UserData() {
           <Typography><strong>sessionUsername:</strong> {clientData.sessionUsername}</Typography>
           <Typography><strong>forceLoggedOut:</strong> {clientData.forceLoggedOut}</Typography>
         </Stack>
+      </Paper>
+
+      <Paper sx={{ p: 3 }}>
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+          <Typography variant="h6" sx={{ flex: 1 }}>
+            Aktive Sessions
+          </Typography>
+          <Button size="small" variant="outlined" onClick={loadSessions}>
+            Aktualisieren
+          </Button>
+          <Button size="small" variant="contained" color="warning" onClick={revokeOtherSessions}>
+            Alle anderen beenden
+          </Button>
+        </Stack>
+
+        {sessionMessage && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            {sessionMessage}
+          </Alert>
+        )}
+
+        {sessionsLoading ? (
+          <Typography color="text.secondary">Sessions werden geladen...</Typography>
+        ) : (
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Status</TableCell>
+                <TableCell>Letzte Aktivität</TableCell>
+                <TableCell>Ablauf</TableCell>
+                <TableCell>User-Agent</TableCell>
+                <TableCell>IP</TableCell>
+                <TableCell align="right">Aktion</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {sessions.map((session) => (
+                <TableRow key={session.id}>
+                  <TableCell>
+                    {session.current ? <Chip size="small" color="success" label="Aktuell" /> : "Aktiv"}
+                  </TableCell>
+                  <TableCell>{new Date(session.lastSeenAt).toLocaleString("de-DE")}</TableCell>
+                  <TableCell>{new Date(session.expiresAt).toLocaleString("de-DE")}</TableCell>
+                  <TableCell sx={{ maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {session.userAgent || "-"}
+                  </TableCell>
+                  <TableCell>{session.ipAddress || "-"}</TableCell>
+                  <TableCell align="right">
+                    <Button
+                      size="small"
+                      color={session.current ? "warning" : "error"}
+                      variant={session.current ? "outlined" : "text"}
+                      onClick={() => revokeSession(session.id, session.current)}
+                    >
+                      {session.current ? "Abmelden" : "Beenden"}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {sessions.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6}>
+                    <Typography color="text.secondary">Keine aktiven Sessions gefunden.</Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        )}
       </Paper>
 
       <Paper sx={{ p: 3 }}>
