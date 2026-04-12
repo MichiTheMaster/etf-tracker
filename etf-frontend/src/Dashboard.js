@@ -15,6 +15,12 @@ export default function Dashboard() {
       try {
         const portfolioState = await PortfolioAPI.load();
         setState(portfolioState);
+
+        const symbols = Object.keys(portfolioState?.holdings || {});
+        const quoteData = await fetchLivePrices(false, symbols);
+        if (quoteData) {
+          setQuotes(quoteData);
+        }
       } catch (loadError) {
         setError(loadError?.message || "Portfolio konnte nicht geladen werden.");
       } finally {
@@ -23,12 +29,6 @@ export default function Dashboard() {
     };
 
     loadPortfolio();
-
-    fetchLivePrices(false).then((data) => {
-      if (data) {
-        setQuotes(data);
-      }
-    });
   }, []);
 
   if (isLoading) {

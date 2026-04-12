@@ -14,6 +14,12 @@ export default function Performance() {
       try {
         const portfolioState = await PortfolioAPI.load();
         setState(portfolioState);
+
+        const symbols = Object.keys(portfolioState?.holdings || {});
+        const quoteData = await fetchLivePrices(false, symbols);
+        if (quoteData) {
+          setQuotes(quoteData);
+        }
       } catch (loadError) {
         setError(loadError?.message || "Performance konnte nicht geladen werden.");
       } finally {
@@ -22,12 +28,6 @@ export default function Performance() {
     };
 
     loadPortfolio();
-
-    fetchLivePrices(false).then((data) => {
-      if (data) {
-        setQuotes(data);
-      }
-    });
   }, []);
 
   if (isLoading) {
