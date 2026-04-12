@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Chip,
+  MenuItem,
   Paper,
   Stack,
   Table,
@@ -489,17 +490,16 @@ export default function AdminSettings() {
           />
           <TextField
             select
-            SelectProps={{ native: true }}
             label="Kategorie"
             size="small"
             value={auditCategory}
             onChange={(event) => setAuditCategory(event.target.value)}
             sx={{ minWidth: 170 }}
           >
-            <option value="">Alle</option>
-            <option value="AUTH">AUTH</option>
-            <option value="ADMIN">ADMIN</option>
-            <option value="PORTFOLIO">PORTFOLIO</option>
+            <MenuItem value="">Alle</MenuItem>
+            <MenuItem value="AUTH">AUTH</MenuItem>
+            <MenuItem value="ADMIN">ADMIN</MenuItem>
+            <MenuItem value="PORTFOLIO">PORTFOLIO</MenuItem>
           </TextField>
           <TextField
             label="Von (Datum)"

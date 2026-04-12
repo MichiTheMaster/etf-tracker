@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Box, Drawer, List, ListItemButton, ListItemIcon, ListItemText, AppBar, Toolbar, Typography, Button, Chip, Divider, Snackbar, Alert, Tooltip, IconButton } from "@mui/material";
+import { Box, Drawer, List, ListItemButton, ListItemIcon, ListItemText, AppBar, Toolbar, Typography, Button, Chip, Divider, Tooltip, IconButton } from "@mui/material";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import PieChartIcon from "@mui/icons-material/PieChart";
@@ -273,6 +273,22 @@ export default function DashboardLayout({ children }) {
               sx={{ fontWeight: 600 }}
             />
           </Box>
+          {warningActive && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mr: 1.5 }}>
+              <Typography variant="body2" sx={{ opacity: 0.9, fontSize: "0.82rem", whiteSpace: "nowrap" }}>
+                Inaktiv seit {elapsedText} | Auto-Logout in {remainingText}
+              </Typography>
+              <Button
+                color="inherit"
+                size="small"
+                variant="outlined"
+                sx={{ borderColor: "rgba(255,255,255,0.5)", whiteSpace: "nowrap", fontSize: "0.78rem", py: 0.3 }}
+                onClick={resetInactivityTimer}
+              >
+                Angemeldet bleiben
+              </Button>
+            </Box>
+          )}
           <Tooltip title="Meine Daten" arrow>
             <IconButton
               color="inherit"
@@ -308,28 +324,7 @@ export default function DashboardLayout({ children }) {
         {children}
       </Box>
 
-      <Snackbar
-        open
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        <Alert
-          severity={warningActive ? "warning" : "success"}
-          variant="filled"
-          sx={{
-            borderRadius: 2,
-            boxShadow: warningActive
-              ? "0 10px 24px rgba(237, 108, 2, 0.22)"
-              : "0 10px 24px rgba(46, 125, 50, 0.22)"
-          }}
-          action={
-            <Button color="inherit" size="small" onClick={resetInactivityTimer}>
-              Angemeldet bleiben
-            </Button>
-          }
-        >
-          Inaktiv seit {elapsedText} | Auto-Logout in {remainingText}
-        </Alert>
-      </Snackbar>
+
     </Box>
   );
 }
