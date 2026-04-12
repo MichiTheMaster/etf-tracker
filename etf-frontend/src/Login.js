@@ -6,9 +6,13 @@ import { API_BASE } from "./apiBase";
 
 export default function Login() {
   const navigate = useNavigate();
+  const [mode, setMode] = useState("login");
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("error");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -20,32 +24,86 @@ export default function Login() {
     }
   }, [navigate]);
 
-  const handleLogin = async () => {
+  const loginAfterRegister = async () => {
+    const loginResponse = await fetch(`${API_BASE}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ username, password })
+    });
+
+    if (!loginResponse.ok) {
+      throw new Error("Auto-login failed");
+    }
+
+    localStorage.setItem("sessionAuthenticated", "1");
+    localStorage.setItem("sessionUsername", username.trim().toLowerCase());
+    localStorage.removeItem("forceLoggedOut");
+    navigate("/dashboard");
+  };
+
+  const handleAuth = async () => {
     if (isSubmitting) {
       return;
     }
 
     setIsSubmitting(true);
     setMessage("");
+    setMessageType("error");
 
     try {
-      const response = await fetch(`${API_BASE}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ username, password })
-      });
+      if (!username.trim() || !password) {
+        setMessage("Bitte Benutzername und Passwort eingeben");
+        return;
+      }
 
-      if (response.ok) {
-        localStorage.setItem("sessionAuthenticated", "1");
-        localStorage.setItem("sessionUsername", username.trim().toLowerCase());
-        localStorage.removeItem("forceLoggedOut");
-        navigate("/dashboard");
+      if (mode === "register") {
+        if (!email.trim()) {
+          setMessage("Bitte eine E-Mail eingeben");
+          return;
+        }
+
+        if (password !== confirmPassword) {
+          setMessage("Passwoerter stimmen nicht ueberein");
+          return;
+        }
+
+        const registerResponse = await fetch(`${API_BASE}/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            username: username.trim(),
+            email: email.trim(),
+            password
+          })
+        });
+
+        if (!registerResponse.ok) {
+          setMessage("Registrierung fehlgeschlagen");
+          return;
+        }
+
+        await loginAfterRegister();
       } else {
-        setMessage("Login fehlgeschlagen");
+        const response = await fetch(`${API_BASE}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ username: username.trim(), password })
+        });
+
+        if (response.ok) {
+          localStorage.setItem("sessionAuthenticated", "1");
+          localStorage.setItem("sessionUsername", username.trim().toLowerCase());
+          localStorage.removeItem("forceLoggedOut");
+          navigate("/dashboard");
+        } else {
+          setMessage("Login fehlgeschlagen");
+        }
       }
     } catch (error) {
-      console.error("Login error:", error);
+      console.error("Auth error:", error);
       setMessage("Server nicht erreichbar");
     } finally {
       setIsSubmitting(false);
@@ -54,8 +112,27 @@ export default function Login() {
 
   const handleSubmit = (event) => {
     event.preventDefault();
-    handleLogin();
+    handleAuth();
   };
+
+  const toggleMode = () => {
+    if (isSubmitting) {
+      return;
+    }
+
+    setMode((prev) => (prev === "login" ? "register" : "login"));
+    setMessage("");
+    setMessageType("error");
+  };
+
+  const isRegisterMode = mode === "register";
+  let submitLabel = "Login";
+  if (isRegisterMode) {
+    submitLabel = "Registrieren";
+  }
+  if (isSubmitting) {
+    submitLabel = <CircularProgress size={24} color="inherit" />;
+  }
 
   return (
     <Box
@@ -68,7 +145,7 @@ export default function Login() {
       <Paper sx={{ p: 4, width: 420 }}>
         <Box component="form" onSubmit={handleSubmit}>
           <Typography variant="h5" sx={{ mb: 3, textAlign: "center" }}>
-            Login
+            {isRegisterMode ? "Registrieren" : "Login"}
           </Typography>
 
           <TextField
@@ -80,6 +157,18 @@ export default function Login() {
             onChange={(e) => setUsername(e.target.value)}
           />
 
+          {isRegisterMode && (
+            <TextField
+              label="E-Mail"
+              type="email"
+              fullWidth
+              margin="normal"
+              disabled={isSubmitting}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          )}
+
           <TextField
             label="Passwort"
             type="password"
@@ -90,6 +179,18 @@ export default function Login() {
             onChange={(e) => setPassword(e.target.value)}
           />
 
+          {isRegisterMode && (
+            <TextField
+              label="Passwort bestaetigen"
+              type="password"
+              fullWidth
+              margin="normal"
+              disabled={isSubmitting}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+          )}
+
           <Button
             variant="contained"
             fullWidth
@@ -97,17 +198,30 @@ export default function Login() {
             type="submit"
             disabled={isSubmitting}
           >
-            {isSubmitting ? <CircularProgress size={24} color="inherit" /> : "Login"}
+            {submitLabel}
+          </Button>
+
+          <Button
+            variant="text"
+            fullWidth
+            sx={{ mt: 1 }}
+            type="button"
+            disabled={isSubmitting}
+            onClick={toggleMode}
+          >
+            {isRegisterMode
+              ? "Schon ein Konto? Zum Login"
+              : "Noch kein Konto? Jetzt registrieren"}
           </Button>
 
           {isSubmitting && (
             <Typography sx={{ mt: 2, textAlign: "center" }}>
-              Anmeldung laeuft...
+              {isRegisterMode ? "Registrierung laeuft..." : "Anmeldung laeuft..."}
             </Typography>
           )}
 
           {message && (
-            <Typography color="error" sx={{ mt: 2, textAlign: "center" }}>
+            <Typography color={messageType === "error" ? "error" : "success.main"} sx={{ mt: 2, textAlign: "center" }}>
               {message}
             </Typography>
           )}
