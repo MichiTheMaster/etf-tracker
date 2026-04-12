@@ -9,6 +9,7 @@ import Performance from "./Performance";
 import LegalPage from "./LegalPage";
 import LandingPage from "./LandingPage";
 import VerifyEmail from "./VerifyEmail";
+import UserData from "./UserData";
 
 function hasActiveSession() {
 	if (typeof window === "undefined") {
@@ -72,6 +73,17 @@ function App() {
 						<ProtectedRoute>
 							<DashboardLayout>
 								<Performance />
+							</DashboardLayout>
+						</ProtectedRoute>
+					}
+				/>
+
+				<Route
+					path="/me"
+					element={
+						<ProtectedRoute>
+							<DashboardLayout>
+								<UserData />
 							</DashboardLayout>
 						</ProtectedRoute>
 					}

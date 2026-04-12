@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import PieChartIcon from "@mui/icons-material/PieChart";
 import TableChartIcon from "@mui/icons-material/TableChart";
+import PersonIcon from "@mui/icons-material/Person";
 import GavelIcon from "@mui/icons-material/Gavel";
 import PrivacyTipIcon from "@mui/icons-material/PrivacyTip";
 import DescriptionIcon from "@mui/icons-material/Description";
@@ -33,6 +34,8 @@ export default function DashboardLayout({ children }) {
       ? "ETF-Liste"
       : currentPath === "/performance"
       ? "Performance"
+      : currentPath === "/me"
+      ? "Meine Daten"
       : "Dashboard";
 
   const handleLogout = useCallback(async () => {
@@ -143,6 +146,15 @@ export default function DashboardLayout({ children }) {
           >
             <ListItemIcon><DashboardIcon /></ListItemIcon>
             <ListItemText primary="Performance" />
+          </ListItemButton>
+
+          <ListItemButton
+            component={Link}
+            to="/me"
+            selected={currentPath === "/me"}
+          >
+            <ListItemIcon><PersonIcon /></ListItemIcon>
+            <ListItemText primary="Meine Daten" />
           </ListItemButton>
         </List>
 
