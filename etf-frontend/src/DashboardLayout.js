@@ -215,6 +215,14 @@ export default function DashboardLayout({ children }) {
               sx={{ fontWeight: 600 }}
             />
           </Box>
+          <Button
+            color="inherit"
+            component={Link}
+            to="/me"
+            sx={{ mr: 1 }}
+          >
+            Meine Daten
+          </Button>
           <Button color="inherit" onClick={handleLogout}>
             Logout
           </Button>
