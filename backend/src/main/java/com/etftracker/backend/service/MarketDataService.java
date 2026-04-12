@@ -566,8 +566,6 @@ public class MarketDataService {
         if (normalized.contains(".")) {
             String base = normalized.substring(0, normalized.indexOf('.'));
             candidates.add(base);
-            String aliased = SYMBOL_ALIASES.getOrDefault(base, base);
-            candidates.add(aliased);
         }
 
         candidates.add(normalized + ".DE");
@@ -593,7 +591,9 @@ public class MarketDataService {
         String base = normalized;
         int dotPos = normalized.indexOf('.');
         if (dotPos > 0) {
-            base = normalized.substring(0, dotPos);
+            // Exchange-qualified symbols (e.g. SXRS.DU) must stay exact and should not be
+            // remapped via alias.
+            return normalized;
         }
 
         return getSymbolAliases().getOrDefault(base, base);

@@ -40,8 +40,7 @@ public class DataInitializer implements CommandLineRunner {
     private void seedAppSettings() {
         appSettingService.upsertIfAbsent("market.fallbackPricesEnabled", "true");
 
-        Map<String, String> aliases = Map.of(
-                "market.alias.SXRS", "SXR8");
+        cleanupLegacySxrsAlias();
 
         Map<String, String> fallbackPrices = new LinkedHashMap<>();
         fallbackPrices.put("market.fallbackPrice.SPY", "520.0");
@@ -56,7 +55,20 @@ public class DataInitializer implements CommandLineRunner {
         fallbackPrices.put("market.fallbackPrice.IUSN", "54.2");
         fallbackPrices.put("market.fallbackPrice.EIMI", "35.7");
 
-        aliases.forEach(appSettingService::upsertIfAbsent);
         fallbackPrices.forEach(appSettingService::upsertIfAbsent);
+    }
+
+    private void cleanupLegacySxrsAlias() {
+        final String cleanupFlag = "migration.2026-04-12.cleanupLegacySxrsAlias";
+        if (appSettingService.findValue(cleanupFlag) != null) {
+            return;
+        }
+
+        String legacyAlias = appSettingService.findValue("market.alias.SXRS");
+        if (legacyAlias != null && "SXR8".equalsIgnoreCase(legacyAlias.trim())) {
+            appSettingService.delete("market.alias.SXRS");
+        }
+
+        appSettingService.upsertIfAbsent(cleanupFlag, "true");
     }
 }
