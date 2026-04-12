@@ -80,13 +80,18 @@ public class MarketDataService {
         REVERSE_SYMBOLS = Collections.unmodifiableMap(rev);
     }
 
-    private static final Map<String, Double> FALLBACK = Map.of(
-            "VWCE", 116.2,
-            "EUNL", 89.45,
-            "EMIM", 33.8,
-            "SXR8", 520.9,
-            "EXSA", 50.4,
-            "SPYD", 62.7);
+    private static final Map<String, Double> FALLBACK = Map.ofEntries(
+            Map.entry("SPY", 520.0),
+            Map.entry("VWCE", 116.2),
+            Map.entry("EUNL", 89.45),
+            Map.entry("EMIM", 33.8),
+            Map.entry("SXR8", 520.9),
+            Map.entry("EXSA", 50.4),
+            Map.entry("SPYD", 62.7),
+            Map.entry("VUSA", 95.8),
+            Map.entry("CSPX", 560.1),
+            Map.entry("IUSN", 54.2),
+            Map.entry("EIMI", 35.7));
 
     private static final Map<String, Double> TER_FALLBACK_DEFAULTS = Map.ofEntries(
             Map.entry("VWCE", 0.22),
