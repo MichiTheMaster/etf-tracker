@@ -6,6 +6,7 @@ import PieChartIcon from "@mui/icons-material/PieChart";
 import TableChartIcon from "@mui/icons-material/TableChart";
 import PersonIcon from "@mui/icons-material/Person";
 import LogoutIcon from "@mui/icons-material/Logout";
+import SettingsIcon from "@mui/icons-material/Settings";
 import GavelIcon from "@mui/icons-material/Gavel";
 import PrivacyTipIcon from "@mui/icons-material/PrivacyTip";
 import DescriptionIcon from "@mui/icons-material/Description";
@@ -37,6 +38,8 @@ export default function DashboardLayout({ children }) {
       ? "Performance"
       : currentPath === "/me"
       ? "Meine Daten"
+      : currentPath === "/admin"
+      ? "Admin"
       : "Dashboard";
 
   const handleLogout = useCallback(async () => {
@@ -157,6 +160,15 @@ export default function DashboardLayout({ children }) {
             <ListItemIcon><PersonIcon /></ListItemIcon>
             <ListItemText primary="Meine Daten" />
           </ListItemButton>
+
+          <ListItemButton
+            component={Link}
+            to="/admin"
+            selected={currentPath === "/admin"}
+          >
+            <ListItemIcon><SettingsIcon /></ListItemIcon>
+            <ListItemText primary="Admin" />
+          </ListItemButton>
         </List>
 
         <Box sx={{ flexGrow: 1 }} />
@@ -224,6 +236,16 @@ export default function DashboardLayout({ children }) {
               sx={{ mr: 0.5 }}
             >
               <PersonIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Admin" arrow>
+            <IconButton
+              color="inherit"
+              component={Link}
+              to="/admin"
+              sx={{ mr: 0.5 }}
+            >
+              <SettingsIcon />
             </IconButton>
           </Tooltip>
           <Tooltip title="Logout" arrow>

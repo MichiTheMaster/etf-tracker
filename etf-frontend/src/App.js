@@ -10,6 +10,7 @@ import LegalPage from "./LegalPage";
 import LandingPage from "./LandingPage";
 import VerifyEmail from "./VerifyEmail";
 import UserData from "./UserData";
+import AdminSettings from "./AdminSettings";
 
 function hasActiveSession() {
 	if (typeof window === "undefined") {
@@ -84,6 +85,17 @@ function App() {
 						<ProtectedRoute>
 							<DashboardLayout>
 								<UserData />
+							</DashboardLayout>
+						</ProtectedRoute>
+					}
+				/>
+
+				<Route
+					path="/admin"
+					element={
+						<ProtectedRoute>
+							<DashboardLayout>
+								<AdminSettings />
 							</DashboardLayout>
 						</ProtectedRoute>
 					}
