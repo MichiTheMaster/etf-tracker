@@ -2,8 +2,12 @@ package com.etftracker.backend.controller;
 
 import com.etftracker.backend.entity.User;
 import com.etftracker.backend.repository.UserRepository;
+import com.etftracker.backend.service.UserService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
@@ -12,9 +16,11 @@ import java.util.Map;
 public class TestController {
 
     private final UserRepository userRepository;
+    private final UserService userService;
 
-    public TestController(UserRepository userRepository) {
+    public TestController(UserRepository userRepository, UserService userService) {
         this.userRepository = userRepository;
+        this.userService = userService;
     }
 
     @GetMapping("/api/me")
@@ -27,5 +33,20 @@ public class TestController {
                 "email", user.getEmail(),
                 "emailVerified", user.isEmailVerified(),
                 "roles", user.getRoles().stream().map(role -> role.getName()).sorted().toList());
+    }
+
+    @PostMapping("/api/user/change-password")
+    public ResponseEntity<Map<String, String>> changePassword(
+            @RequestBody Map<String, String> body,
+            Authentication auth) {
+        String currentPassword = body.get("currentPassword");
+        String newPassword = body.get("newPassword");
+
+        try {
+            userService.changePassword(auth.getName(), currentPassword, newPassword);
+            return ResponseEntity.ok(Map.of("message", "Passwort erfolgreich geändert"));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 }

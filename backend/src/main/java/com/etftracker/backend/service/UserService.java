@@ -88,4 +88,39 @@ public class UserService {
         return emailVerificationRequired;
     }
 
+    public void changePassword(String username, String currentPassword, String newPassword) {
+        if (currentPassword == null || currentPassword.isBlank()) {
+            throw new IllegalArgumentException("Aktuelles Passwort darf nicht leer sein");
+        }
+        validatePasswordStrength(newPassword);
+
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("Benutzer nicht gefunden"));
+
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            throw new IllegalArgumentException("Aktuelles Passwort ist falsch");
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+    }
+
+    private void validatePasswordStrength(String password) {
+        if (password == null || password.length() < 8) {
+            throw new IllegalArgumentException("Passwort muss mindestens 8 Zeichen lang sein");
+        }
+        if (!password.chars().anyMatch(Character::isUpperCase)) {
+            throw new IllegalArgumentException("Passwort muss mindestens einen Großbuchstaben enthalten");
+        }
+        if (!password.chars().anyMatch(Character::isLowerCase)) {
+            throw new IllegalArgumentException("Passwort muss mindestens einen Kleinbuchstaben enthalten");
+        }
+        if (!password.chars().anyMatch(Character::isDigit)) {
+            throw new IllegalArgumentException("Passwort muss mindestens eine Zahl enthalten");
+        }
+        if (!password.chars().anyMatch(c -> "!@#$%^&*()_+-=[]{}|;':\",./<>?".indexOf(c) >= 0)) {
+            throw new IllegalArgumentException("Passwort muss mindestens ein Sonderzeichen enthalten (!@#$%^&*...)");
+        }
+    }
+
 }
