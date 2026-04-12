@@ -25,6 +25,17 @@ import { PortfolioAPI } from "./portfolioAPI";
 
 const AUTO_REFRESH_SECONDS = 60;
 
+function hasValidQuoteCoverage(quoteData, symbols) {
+  if (!quoteData || !Array.isArray(symbols) || symbols.length === 0) {
+    return false;
+  }
+
+  return symbols.every((symbol) => {
+    const price = quoteData?.[symbol]?.price;
+    return Number.isFinite(price) && price > 0;
+  });
+}
+
 export default function Portfolio() {
   const [state, setState] = useState(null);
   const [sellQuantities, setSellQuantities] = useState({});
@@ -71,8 +82,18 @@ export default function Portfolio() {
     isRefreshingRef.current = true;
     setIsRefreshing(true);
     try {
-      const data = await fetchLivePrices(forceRefresh, symbolsToRefresh);
-      if (data) {
+      let data = await fetchLivePrices(forceRefresh, symbolsToRefresh);
+
+      // Some providers return transient zero/missing prices right after page load.
+      // Auto-retry once with force=true to mirror manual refresh behavior.
+      if (!hasValidQuoteCoverage(data, symbolsToRefresh)) {
+        const retryData = await fetchLivePrices(true, symbolsToRefresh);
+        if (retryData) {
+          data = retryData;
+        }
+      }
+
+      if (data && Object.keys(data).length > 0) {
         setQuotes(data);
       }
       setCountdown(AUTO_REFRESH_SECONDS);
