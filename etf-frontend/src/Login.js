@@ -61,6 +61,29 @@ export default function Login() {
     setMessageType("error");
 
     try {
+      if (mode === "forgot") {
+        if (!email.trim()) {
+          setMessage("Bitte eine E-Mail eingeben");
+          return;
+        }
+
+        const response = await fetch(`${API_BASE}/auth/forgot-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ email: email.trim() })
+        });
+
+        if (!response.ok) {
+          setMessage(await getResponseMessage(response, "Passwort-Reset fehlgeschlagen"));
+          return;
+        }
+
+        setMessageType("success");
+        setMessage("Falls ein Account mit dieser E-Mail-Adresse existiert, wurde eine Reset-E-Mail versendet");
+        return;
+      }
+
       if (!username.trim() || !password) {
         setMessage("Bitte Benutzername und Passwort eingeben");
         return;
@@ -140,15 +163,33 @@ export default function Login() {
       return;
     }
 
-    setMode((prev) => (prev === "login" ? "register" : "login"));
+    if (mode === "login") {
+      setMode("register");
+    } else if (mode === "register") {
+      setMode("login");
+    } else if (mode === "forgot") {
+      setMode("login");
+    }
+    setMessage("");
+    setMessageType("error");
+  };
+
+  const switchToForgot = () => {
+    if (isSubmitting) {
+      return;
+    }
+    setMode("forgot");
     setMessage("");
     setMessageType("error");
   };
 
   const isRegisterMode = mode === "register";
+  const isForgotMode = mode === "forgot";
   let submitLabel = "Login";
   if (isRegisterMode) {
     submitLabel = "Registrieren";
+  } else if (isForgotMode) {
+    submitLabel = "Reset-E-Mail senden";
   }
   if (isSubmitting) {
     submitLabel = <CircularProgress size={24} color="inherit" />;
@@ -165,19 +206,21 @@ export default function Login() {
       <Paper sx={{ p: 4, width: 420 }}>
         <Box component="form" onSubmit={handleSubmit}>
           <Typography variant="h5" sx={{ mb: 3, textAlign: "center" }}>
-            {isRegisterMode ? "Registrieren" : "Login"}
+            {isRegisterMode ? "Registrieren" : isForgotMode ? "Passwort zurücksetzen" : "Login"}
           </Typography>
 
-          <TextField
-            label="Benutzername"
-            fullWidth
-            margin="normal"
-            disabled={isSubmitting}
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-          />
+          {!isForgotMode && (
+            <TextField
+              label="Benutzername"
+              fullWidth
+              margin="normal"
+              disabled={isSubmitting}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+          )}
 
-          {isRegisterMode && (
+          {(isRegisterMode || isForgotMode) && (
             <TextField
               label="E-Mail"
               type="email"
@@ -189,15 +232,17 @@ export default function Login() {
             />
           )}
 
-          <TextField
-            label="Passwort"
-            type="password"
-            fullWidth
-            margin="normal"
-            disabled={isSubmitting}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          {!isForgotMode && (
+            <TextField
+              label="Passwort"
+              type="password"
+              fullWidth
+              margin="normal"
+              disabled={isSubmitting}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          )}
 
           {isRegisterMode && (
             <TextField
@@ -231,12 +276,27 @@ export default function Login() {
           >
             {isRegisterMode
               ? "Schon ein Konto? Zum Login"
+              : isForgotMode
+              ? "Zurück zum Login"
               : "Noch kein Konto? Jetzt registrieren"}
           </Button>
 
+          {!isRegisterMode && !isForgotMode && (
+            <Button
+              variant="text"
+              fullWidth
+              sx={{ mt: 1 }}
+              type="button"
+              disabled={isSubmitting}
+              onClick={switchToForgot}
+            >
+              Passwort vergessen?
+            </Button>
+          )}
+
           {isSubmitting && (
             <Typography sx={{ mt: 2, textAlign: "center" }}>
-              {isRegisterMode ? "Registrierung laeuft..." : "Anmeldung laeuft..."}
+              {isRegisterMode ? "Registrierung laeuft..." : isForgotMode ? "E-Mail wird versendet..." : "Anmeldung laeuft..."}
             </Typography>
           )}
 

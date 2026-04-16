@@ -89,7 +89,7 @@ public class UserService {
         String normalizedUserAgent = normalize(userAgent, 255);
 
         User user = userRepository.findByUsername(normalizedUsername)
-            .orElseThrow(() -> new IllegalArgumentException(USER_NOT_FOUND));
+                .orElseThrow(() -> new IllegalArgumentException(USER_NOT_FOUND));
 
         if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(Instant.now())) {
             throw new IllegalStateException("Konto ist bis " + user.getLockedUntil() + " gesperrt");
@@ -107,7 +107,8 @@ public class UserService {
             throw new IllegalStateException("Bitte bestaetige zuerst deine E-Mail-Adresse");
         }
 
-        boolean newIp = normalizedIp != null && !normalizedIp.equals(user.getLastLoginIp()) && user.getLastLoginIp() != null;
+        boolean newIp = normalizedIp != null && !normalizedIp.equals(user.getLastLoginIp())
+                && user.getLastLoginIp() != null;
         boolean newDevice = normalizedUserAgent != null
                 && !normalizedUserAgent.equals(user.getLastLoginUserAgent())
                 && user.getLastLoginUserAgent() != null;
@@ -137,22 +138,22 @@ public class UserService {
 
     public void unlockAccount(Long userId) {
         User user = userRepository.findById(userId)
-            .orElseThrow(() -> new IllegalArgumentException(USER_NOT_FOUND));
+                .orElseThrow(() -> new IllegalArgumentException(USER_NOT_FOUND));
         user.setFailedLoginAttempts(0);
         user.setLockedUntil(null);
         userRepository.save(user);
     }
 
-        public void lockAccount(Long userId, Integer minutesOverride) {
+    public void lockAccount(Long userId, Integer minutesOverride) {
         User user = userRepository.findById(userId)
-            .orElseThrow(() -> new IllegalArgumentException(USER_NOT_FOUND));
+                .orElseThrow(() -> new IllegalArgumentException(USER_NOT_FOUND));
         int lockMinutes = minutesOverride != null && minutesOverride > 0
-            ? Math.min(minutesOverride, 1440)
-            : getLockDurationMinutes();
+                ? Math.min(minutesOverride, 1440)
+                : getLockDurationMinutes();
         user.setLockedUntil(Instant.now().plus(lockMinutes, ChronoUnit.MINUTES));
         user.setFailedLoginAttempts(Math.max(user.getFailedLoginAttempts(), getMaxFailedLoginAttempts()));
         userRepository.save(user);
-        }
+    }
 
     public void changePassword(String username, String currentPassword, String newPassword) {
         if (currentPassword == null || currentPassword.isBlank()) {
@@ -161,7 +162,7 @@ public class UserService {
         validatePasswordStrength(newPassword);
 
         User user = userRepository.findByUsername(username)
-            .orElseThrow(() -> new IllegalArgumentException(USER_NOT_FOUND));
+                .orElseThrow(() -> new IllegalArgumentException(USER_NOT_FOUND));
 
         if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
             throw new IllegalArgumentException("Aktuelles Passwort ist falsch");
@@ -169,6 +170,39 @@ public class UserService {
 
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
+    }
+
+    public void changeEmail(String username, String currentPassword, String newEmail) {
+        if (currentPassword == null || currentPassword.isBlank()) {
+            throw new IllegalArgumentException("Passwort darf nicht leer sein");
+        }
+        if (newEmail == null || newEmail.isBlank()) {
+            throw new IllegalArgumentException("E-Mail darf nicht leer sein");
+        }
+
+        String normalizedEmail = newEmail.trim();
+        if (!normalizedEmail.matches("^[A-Za-z0-9+_.-]+@([A-Za-z0-9.-]+)$")) {
+            throw new IllegalArgumentException("Ungültige E-Mail-Adresse");
+        }
+
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException(USER_NOT_FOUND));
+
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            throw new IllegalArgumentException("Passwort ist falsch");
+        }
+
+        if (userRepository.existsByEmail(normalizedEmail)) {
+            throw new IllegalArgumentException("Diese E-Mail-Adresse wird bereits verwendet");
+        }
+
+        user.setEmail(normalizedEmail);
+        user.setEmailVerified(false);
+        userRepository.save(user);
+
+        if (emailVerificationRequired) {
+            emailVerificationService.createAndSendVerification(user);
+        }
     }
 
     private void validatePasswordStrength(String password) {

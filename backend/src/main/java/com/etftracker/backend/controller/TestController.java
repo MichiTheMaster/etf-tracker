@@ -53,4 +53,20 @@ public class TestController {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
+
+    @PostMapping("/api/user/change-email")
+    public ResponseEntity<Map<String, String>> changeEmail(
+            @RequestBody Map<String, String> body,
+            Authentication auth) {
+        String currentPassword = body.get("currentPassword");
+        String newEmail = body.get("newEmail");
+
+        try {
+            userService.changeEmail(auth.getName(), currentPassword, newEmail);
+            auditLogService.log(auth.getName(), "AUTH", "E-Mail geändert", "Neue E-Mail: " + newEmail);
+            return ResponseEntity.ok(Map.of("message", "E-Mail erfolgreich geändert"));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
 }

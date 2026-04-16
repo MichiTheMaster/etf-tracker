@@ -9,6 +9,7 @@ import Performance from "./Performance";
 import LegalPage from "./LegalPage";
 import LandingPage from "./LandingPage";
 import VerifyEmail from "./VerifyEmail";
+import ResetPassword from "./ResetPassword";
 import UserData from "./UserData";
 import AdminSettings from "./AdminSettings";
 
@@ -34,6 +35,7 @@ function App() {
 				<Route path="/" element={<LandingPage />} />
 				<Route path="/login" element={<LoginRoute />} />
 				<Route path="/verify-email" element={<VerifyEmail />} />
+				<Route path="/reset-password" element={<ResetPassword />} />
 				<Route path="/legal/:slug" element={<LegalPage />} />
         <Route
           path="/dashboard"

@@ -6,6 +6,7 @@ import com.etftracker.backend.dto.LoginAttemptResult;
 import com.etftracker.backend.entity.User;
 import com.etftracker.backend.service.AuditLogService;
 import com.etftracker.backend.service.EmailVerificationService;
+import com.etftracker.backend.service.PasswordResetService;
 import com.etftracker.backend.service.UserSessionService;
 import com.etftracker.backend.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,6 +28,7 @@ public class AuthController {
     private final UserService userService;
     private final JwtUtil jwtUtil;
     private final EmailVerificationService emailVerificationService;
+    private final PasswordResetService passwordResetService;
     private final AuditLogService auditLogService;
     private final UserSessionService userSessionService;
 
@@ -34,10 +36,12 @@ public class AuthController {
     private boolean secureCookie;
 
     public AuthController(UserService userService, JwtUtil jwtUtil, EmailVerificationService emailVerificationService,
-            AuditLogService auditLogService, UserSessionService userSessionService) {
+            PasswordResetService passwordResetService, AuditLogService auditLogService,
+            UserSessionService userSessionService) {
         this.userService = userService;
         this.jwtUtil = jwtUtil;
         this.emailVerificationService = emailVerificationService;
+        this.passwordResetService = passwordResetService;
         this.auditLogService = auditLogService;
         this.userSessionService = userSessionService;
     }
@@ -68,16 +72,16 @@ public class AuthController {
             User user = loginResult.getUser();
             String token = jwtUtil.generateToken(user.getUsername());
             String sessionId = userSessionService.createSession(user,
-                httpRequest.getHeader("User-Agent"),
-                ipAddress);
+                    httpRequest.getHeader("User-Agent"),
+                    ipAddress);
 
             ResponseCookie jwtCookie = ResponseCookie.from("jwt", token)
-                .httpOnly(true)
-                .secure(secureCookie)
-                .sameSite("Lax")
-                .path("/")
-                .maxAge(24L * 60 * 60)
-                .build();
+                    .httpOnly(true)
+                    .secure(secureCookie)
+                    .sameSite("Lax")
+                    .path("/")
+                    .maxAge(24L * 60 * 60)
+                    .build();
 
             ResponseCookie sidCookie = ResponseCookie.from("sid", sessionId)
                     .httpOnly(true)
@@ -145,6 +149,46 @@ public class AuthController {
         return ResponseEntity.ok()
                 .header("Set-Cookie", expiredJwtCookie.toString(), expiredSidCookie.toString())
                 .build();
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<Object> forgotPassword(@RequestBody Map<String, String> request) {
+        try {
+            String email = request.get("email");
+            if (email == null || email.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "E-Mail-Adresse ist erforderlich"));
+            }
+            passwordResetService.createAndSendResetToken(email.trim());
+            return ResponseEntity.ok(Map.of("message",
+                    "Falls ein Account mit dieser E-Mail-Adresse existiert, wurde eine Reset-E-Mail versendet"));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("message", "Passwort-Reset konnte nicht initiiert werden"));
+        }
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<Object> resetPassword(@RequestBody Map<String, String> request) {
+        try {
+            String token = request.get("token");
+            String newPassword = request.get("newPassword");
+            if (token == null || token.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Token ist erforderlich"));
+            }
+            if (newPassword == null || newPassword.length() < 6) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("message", "Passwort muss mindestens 6 Zeichen lang sein"));
+            }
+            passwordResetService.resetPassword(token.trim(), newPassword);
+            return ResponseEntity.ok(Map.of("message", "Passwort erfolgreich zurückgesetzt"));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("message", "Passwort-Reset fehlgeschlagen"));
+        }
     }
 
     private String extractIpAddress(HttpServletRequest request) {
