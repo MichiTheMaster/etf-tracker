@@ -125,6 +125,8 @@ export default function UserData() {
 
       if (isCurrent) {
         localStorage.removeItem("sessionAuthenticated");
+        localStorage.removeItem("sessionRoles");
+        localStorage.removeItem("sessionUsername");
         localStorage.setItem("forceLoggedOut", "1");
         window.location.hash = "#/login";
         return;

@@ -3,6 +3,7 @@ package com.etftracker.backend.entity;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -23,6 +24,15 @@ public class Portfolio {
 
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal cash;
+
+    @Column(nullable = false, precision = 8, scale = 6)
+    private BigDecimal transactionFeeRate = BigDecimal.ZERO;
+
+    @Column(nullable = false, precision = 8, scale = 6)
+    private BigDecimal depotFeeRate = BigDecimal.ZERO;
+
+    @Column
+    private LocalDate lastDepotFeeChargedAt;
 
     @OneToMany(mappedBy = "portfolio", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<Position> positions = new HashSet<>();
@@ -79,6 +89,30 @@ public class Portfolio {
 
     public void setCash(BigDecimal cash) {
         this.cash = cash;
+    }
+
+    public BigDecimal getTransactionFeeRate() {
+        return transactionFeeRate;
+    }
+
+    public void setTransactionFeeRate(BigDecimal transactionFeeRate) {
+        this.transactionFeeRate = transactionFeeRate;
+    }
+
+    public BigDecimal getDepotFeeRate() {
+        return depotFeeRate;
+    }
+
+    public void setDepotFeeRate(BigDecimal depotFeeRate) {
+        this.depotFeeRate = depotFeeRate;
+    }
+
+    public LocalDate getLastDepotFeeChargedAt() {
+        return lastDepotFeeChargedAt;
+    }
+
+    public void setLastDepotFeeChargedAt(LocalDate lastDepotFeeChargedAt) {
+        this.lastDepotFeeChargedAt = lastDepotFeeChargedAt;
     }
 
     public Set<Position> getPositions() {

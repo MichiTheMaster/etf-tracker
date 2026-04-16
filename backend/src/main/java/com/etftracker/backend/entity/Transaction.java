@@ -37,6 +37,9 @@ public class Transaction {
     @Column(precision = 19, scale = 2)
     private BigDecimal realizedProfit;
 
+    @Column(precision = 19, scale = 2)
+    private BigDecimal fee;
+
     @Column(nullable = false)
     private LocalDateTime transactionTimestamp;
 
@@ -119,6 +122,14 @@ public class Transaction {
         this.realizedProfit = realizedProfit;
     }
 
+    public BigDecimal getFee() {
+        return fee;
+    }
+
+    public void setFee(BigDecimal fee) {
+        this.fee = fee;
+    }
+
     public LocalDateTime getTransactionTimestamp() {
         return transactionTimestamp;
     }
@@ -132,6 +143,6 @@ public class Transaction {
     }
 
     public enum TransactionType {
-        BUY, SELL
+        BUY, SELL, DEPOT_FEE
     }
 }

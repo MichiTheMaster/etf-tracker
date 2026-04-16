@@ -10,6 +10,9 @@ export default function ProtectedRoute({ children, requiredRole }) {
     const hasClientSession = localStorage.getItem("sessionAuthenticated") === "1";
 
     if (localStorage.getItem("forceLoggedOut") === "1") {
+      localStorage.removeItem("sessionAuthenticated");
+      localStorage.removeItem("sessionRoles");
+      localStorage.removeItem("sessionUsername");
       setStatus("unauthenticated");
       return () => {
         isMounted = false;
@@ -17,6 +20,8 @@ export default function ProtectedRoute({ children, requiredRole }) {
     }
 
     if (!hasClientSession) {
+      localStorage.removeItem("sessionRoles");
+      localStorage.removeItem("sessionUsername");
       setStatus("unauthenticated");
       return () => {
         isMounted = false;
@@ -37,6 +42,7 @@ export default function ProtectedRoute({ children, requiredRole }) {
         if (!response.ok) {
           localStorage.removeItem("sessionAuthenticated");
           localStorage.removeItem("sessionRoles");
+          localStorage.removeItem("sessionUsername");
           if (isMounted) {
             setStatus("unauthenticated");
           }
@@ -66,6 +72,7 @@ export default function ProtectedRoute({ children, requiredRole }) {
       } catch (error) {
         localStorage.removeItem("sessionAuthenticated");
         localStorage.removeItem("sessionRoles");
+        localStorage.removeItem("sessionUsername");
 
         if (isMounted) {
           setStatus("unauthenticated");

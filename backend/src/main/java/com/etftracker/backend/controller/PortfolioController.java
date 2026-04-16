@@ -3,6 +3,7 @@ package com.etftracker.backend.controller;
 import com.etftracker.backend.dto.BuyEtfRequest;
 import com.etftracker.backend.dto.EtfPreferenceRequest;
 import com.etftracker.backend.dto.EtfPreferenceResponse;
+import com.etftracker.backend.dto.FeeSettingsRequest;
 import com.etftracker.backend.dto.PortfolioResponse;
 import com.etftracker.backend.dto.SellEtfRequest;
 import com.etftracker.backend.entity.User;
@@ -93,6 +94,19 @@ public class PortfolioController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(new ErrorMessage(e.getMessage()));
+        }
+    }
+
+    @PutMapping("/fees")
+    public ResponseEntity<?> updateFeeSettings(@RequestBody FeeSettingsRequest request) {
+        try {
+            User user = getCurrentUser();
+            PortfolioResponse response = portfolioService.updateFeeSettings(user, request);
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(new ErrorMessage(e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(new ErrorMessage("Fehler beim Speichern der Gebühren."));
         }
     }
 

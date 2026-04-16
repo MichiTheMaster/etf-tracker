@@ -8,11 +8,16 @@ public class PortfolioResponse {
     public BigDecimal cash;
     public Map<String, HoldingDTO> holdings;
     public List<TransactionDTO> transactions;
+    public BigDecimal transactionFeeRate;
+    public BigDecimal depotFeeRate;
 
-    public PortfolioResponse(BigDecimal cash, Map<String, HoldingDTO> holdings, List<TransactionDTO> transactions) {
+    public PortfolioResponse(BigDecimal cash, Map<String, HoldingDTO> holdings, List<TransactionDTO> transactions,
+            BigDecimal transactionFeeRate, BigDecimal depotFeeRate) {
         this.cash = cash;
         this.holdings = holdings;
         this.transactions = transactions;
+        this.transactionFeeRate = transactionFeeRate;
+        this.depotFeeRate = depotFeeRate;
     }
 
     public static class HoldingDTO {
@@ -35,10 +40,11 @@ public class PortfolioResponse {
         public BigDecimal price;
         public BigDecimal total;
         public BigDecimal realizedProfit;
+        public BigDecimal fee;
         public String timestamp;
 
         public TransactionDTO(Long id, String type, String symbol, Integer quantity,
-                BigDecimal price, BigDecimal total, BigDecimal realizedProfit, String timestamp) {
+                BigDecimal price, BigDecimal total, BigDecimal realizedProfit, BigDecimal fee, String timestamp) {
             this.id = id;
             this.type = type;
             this.symbol = symbol;
@@ -46,6 +52,7 @@ public class PortfolioResponse {
             this.price = price;
             this.total = total;
             this.realizedProfit = realizedProfit;
+            this.fee = fee;
             this.timestamp = timestamp;
         }
     }

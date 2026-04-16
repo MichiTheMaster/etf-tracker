@@ -18,10 +18,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import com.etftracker.backend.dto.FeeSettingsRequest;
 
 @Service
 public class PortfolioService {
@@ -56,6 +58,8 @@ public class PortfolioService {
     public PortfolioResponse getPortfolioState(User user) {
         Portfolio portfolio = getOrCreateDefaultPortfolio(user);
 
+        chargeDepotFeeIfDue(portfolio);
+
         Map<String, HoldingDTO> holdings = new HashMap<>();
         for (Position pos : portfolio.getPositions()) {
             holdings.put(
@@ -77,10 +81,12 @@ public class PortfolioService {
                         tx.getPrice(),
                         tx.getTotal(),
                         tx.getRealizedProfit(),
+                        tx.getFee(),
                         tx.getTransactionTimestamp().format(DateTimeFormatter.ISO_DATE_TIME)))
                 .toList();
 
-        return new PortfolioResponse(portfolio.getCash(), holdings, transactionDTOs);
+        return new PortfolioResponse(portfolio.getCash(), holdings, transactionDTOs,
+                portfolio.getTransactionFeeRate(), portfolio.getDepotFeeRate());
     }
 
     @Transactional
@@ -96,11 +102,16 @@ public class PortfolioService {
 
         BigDecimal total = BigDecimal.valueOf(quantity).multiply(price).setScale(2, RoundingMode.HALF_UP);
 
-        if (portfolio.getCash().compareTo(total) < 0) {
+        BigDecimal feeRate = portfolio.getTransactionFeeRate() != null ? portfolio.getTransactionFeeRate()
+                : BigDecimal.ZERO;
+        BigDecimal fee = total.multiply(feeRate).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal totalWithFee = total.add(fee);
+
+        if (portfolio.getCash().compareTo(totalWithFee) < 0) {
             throw new IllegalArgumentException("Nicht genug Spielgeld vorhanden.");
         }
 
-        portfolio.setCash(portfolio.getCash().subtract(total));
+        portfolio.setCash(portfolio.getCash().subtract(totalWithFee));
 
         Optional<Position> existing = positionRepository.findByPortfolioAndSymbol(portfolio, symbol);
         Position position;
@@ -125,6 +136,9 @@ public class PortfolioService {
                 price,
                 total,
                 LocalDateTime.now());
+        if (fee.compareTo(BigDecimal.ZERO) > 0) {
+            tx.setFee(fee);
+        }
         transactionRepository.save(tx);
 
         return getPortfolioState(user);
@@ -149,11 +163,16 @@ public class PortfolioService {
         }
 
         BigDecimal proceeds = BigDecimal.valueOf(quantity).multiply(price).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal feeRate = portfolio.getTransactionFeeRate() != null ? portfolio.getTransactionFeeRate()
+                : BigDecimal.ZERO;
+        BigDecimal fee = proceeds.multiply(feeRate).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal netProceeds = proceeds.subtract(fee);
+
         BigDecimal averageCost = position.getCostTotal()
                 .divide(BigDecimal.valueOf(position.getShares()), 10, RoundingMode.HALF_UP);
         BigDecimal costPart = averageCost.multiply(BigDecimal.valueOf(quantity))
                 .setScale(2, RoundingMode.HALF_UP);
-        BigDecimal realizedProfit = proceeds.subtract(costPart);
+        BigDecimal realizedProfit = netProceeds.subtract(costPart);
 
         int remainingShares = position.getShares() - quantity;
         if (remainingShares == 0) {
@@ -166,7 +185,7 @@ public class PortfolioService {
             positionRepository.save(position);
         }
 
-        portfolio.setCash(portfolio.getCash().add(proceeds));
+        portfolio.setCash(portfolio.getCash().add(netProceeds));
         portfolio = portfolioRepository.save(portfolio);
 
         Transaction tx = new Transaction(
@@ -178,6 +197,9 @@ public class PortfolioService {
                 proceeds,
                 LocalDateTime.now());
         tx.setRealizedProfit(realizedProfit);
+        if (fee.compareTo(BigDecimal.ZERO) > 0) {
+            tx.setFee(fee);
+        }
         transactionRepository.save(tx);
 
         return getPortfolioState(user);
@@ -185,5 +207,77 @@ public class PortfolioService {
 
     private boolean isValidQuantity(Integer quantity) {
         return quantity != null && quantity > 0 && quantity.equals(quantity.intValue());
+    }
+
+    @Transactional
+    public PortfolioResponse updateFeeSettings(User user, FeeSettingsRequest request) {
+        if (request.transactionFeeRate == null || request.transactionFeeRate.compareTo(BigDecimal.ZERO) < 0
+                || request.transactionFeeRate.compareTo(new BigDecimal("0.1")) > 0) {
+            throw new IllegalArgumentException("Transaktionsgebühr muss zwischen 0 und 10 % liegen.");
+        }
+        if (request.depotFeeRate == null || request.depotFeeRate.compareTo(BigDecimal.ZERO) < 0
+                || request.depotFeeRate.compareTo(new BigDecimal("0.1")) > 0) {
+            throw new IllegalArgumentException("Depotgebühr muss zwischen 0 und 10 % p.a. liegen.");
+        }
+        Portfolio portfolio = getOrCreateDefaultPortfolio(user);
+        portfolio.setTransactionFeeRate(request.transactionFeeRate);
+        portfolio.setDepotFeeRate(request.depotFeeRate);
+        portfolioRepository.save(portfolio);
+        return getPortfolioState(user);
+    }
+
+    private void chargeDepotFeeIfDue(Portfolio portfolio) {
+        BigDecimal depotFeeRate = portfolio.getDepotFeeRate();
+        if (depotFeeRate == null || depotFeeRate.compareTo(BigDecimal.ZERO) == 0) {
+            return;
+        }
+
+        LocalDate today = LocalDate.now();
+        LocalDate lastCharged = portfolio.getLastDepotFeeChargedAt();
+
+        if (lastCharged == null) {
+            portfolio.setLastDepotFeeChargedAt(today.withDayOfMonth(1));
+            portfolioRepository.save(portfolio);
+            return;
+        }
+
+        LocalDate nextChargeMonth = lastCharged.plusMonths(1).withDayOfMonth(1);
+        if (!today.isBefore(nextChargeMonth)) {
+            long monthsDue = java.time.temporal.ChronoUnit.MONTHS.between(
+                    lastCharged.withDayOfMonth(1), today.withDayOfMonth(1));
+
+            BigDecimal costBasis = portfolio.getPositions().stream()
+                    .map(Position::getCostTotal)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal portfolioValue = portfolio.getCash().add(costBasis);
+
+            BigDecimal monthlyRate = depotFeeRate.divide(new BigDecimal("12"), 10, RoundingMode.HALF_UP);
+            BigDecimal totalFee = portfolioValue.multiply(monthlyRate)
+                    .multiply(BigDecimal.valueOf(monthsDue))
+                    .setScale(2, RoundingMode.HALF_UP);
+
+            if (totalFee.compareTo(BigDecimal.ZERO) > 0) {
+                if (portfolio.getCash().compareTo(totalFee) >= 0) {
+                    portfolio.setCash(portfolio.getCash().subtract(totalFee));
+                } else {
+                    totalFee = portfolio.getCash();
+                    portfolio.setCash(BigDecimal.ZERO);
+                }
+
+                Transaction feeTx = new Transaction(
+                        portfolio,
+                        TransactionType.DEPOT_FEE,
+                        "-",
+                        0,
+                        portfolioValue,
+                        totalFee,
+                        LocalDateTime.now());
+                feeTx.setFee(totalFee);
+                transactionRepository.save(feeTx);
+            }
+
+            portfolio.setLastDepotFeeChargedAt(today.withDayOfMonth(1));
+            portfolioRepository.save(portfolio);
+        }
     }
 }

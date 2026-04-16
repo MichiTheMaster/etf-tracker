@@ -85,6 +85,16 @@ export default function Performance() {
             </Typography>
           </Paper>
         </Grid>
+        <Grid item xs={12} md={4}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="subtitle2" color="text.secondary">
+              Gesamtgebühren
+            </Typography>
+            <Typography variant="h5" color={metrics.totalFees > 0 ? "error.main" : "text.primary"}>
+              {formatCurrency(metrics.totalFees)}
+            </Typography>
+          </Paper>
+        </Grid>
       </Grid>
 
       <Paper sx={{ p: 3 }}>
@@ -100,6 +110,7 @@ export default function Performance() {
                 <TableCell>Anzahl</TableCell>
                 <TableCell>Preis</TableCell>
                 <TableCell>Betrag</TableCell>
+                <TableCell>Gebühr</TableCell>
                 <TableCell>Realized</TableCell>
               </TableRow>
             </TableHead>
@@ -107,11 +118,14 @@ export default function Performance() {
               {state.transactions.slice(0, 20).map((tx) => (
                 <TableRow key={tx.id}>
                   <TableCell>{new Date(tx.timestamp).toLocaleString("de-DE")}</TableCell>
-                  <TableCell>{tx.type}</TableCell>
-                  <TableCell>{tx.symbol}</TableCell>
-                  <TableCell>{tx.quantity}</TableCell>
-                  <TableCell>{formatCurrency(tx.price)}</TableCell>
+                  <TableCell>{tx.type === "DEPOT_FEE" ? "Depotgebühr" : tx.type}</TableCell>
+                  <TableCell>{tx.type === "DEPOT_FEE" ? "-" : tx.symbol}</TableCell>
+                  <TableCell>{tx.type === "DEPOT_FEE" ? "-" : tx.quantity}</TableCell>
+                  <TableCell>{tx.type === "DEPOT_FEE" ? "-" : formatCurrency(tx.price)}</TableCell>
                   <TableCell>{formatCurrency(tx.total)}</TableCell>
+                  <TableCell sx={{ color: tx.fee ? "error.main" : "text.secondary" }}>
+                    {tx.fee ? formatCurrency(tx.fee) : "-"}
+                  </TableCell>
                   <TableCell>
                     {tx.type === "SELL" ? formatCurrency(tx.realizedProfit || 0) : "-"}
                   </TableCell>

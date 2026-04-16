@@ -47,12 +47,27 @@ export default function Portfolio() {
   const [sortConfig, setSortConfig] = useState({ field: "symbol", direction: "asc" });
   const isRefreshingRef = useRef(false);
 
+  const [feeTransactionPct, setFeeTransactionPct] = useState("");
+  const [feeDepotPct, setFeeDepotPct] = useState("");
+  const [feeError, setFeeError] = useState("");
+  const [feeSaved, setFeeSaved] = useState(false);
+
   // Load portfolio from API on mount
   useEffect(() => {
     const loadPortfolio = async () => {
       try {
         const portfolioState = await PortfolioAPI.load();
         setState(portfolioState);
+        setFeeTransactionPct(
+          portfolioState.transactionFeeRate == null
+            ? "0"
+            : (Number(portfolioState.transactionFeeRate) * 100).toFixed(4)
+        );
+        setFeeDepotPct(
+          portfolioState.depotFeeRate == null
+            ? "0"
+            : (Number(portfolioState.depotFeeRate) * 100).toFixed(4)
+        );
       } catch (err) {
         setError(err?.message || "Portfolio konnte nicht geladen werden.");
         console.error(err);
@@ -198,6 +213,28 @@ export default function Portfolio() {
       setSellQuantities((prev) => ({ ...prev, [symbol]: "" }));
     } catch (sellError) {
       setError(sellError.message);
+    }
+  };
+
+  const handleSaveFees = async () => {
+    setFeeError("");
+    setFeeSaved(false);
+    const txRate = Number.parseFloat(feeTransactionPct) / 100;
+    const depotRate = Number.parseFloat(feeDepotPct) / 100;
+    if (Number.isNaN(txRate) || txRate < 0 || txRate > 0.1) {
+      setFeeError("Transaktionsgebühr muss zwischen 0 und 10 % liegen.");
+      return;
+    }
+    if (Number.isNaN(depotRate) || depotRate < 0 || depotRate > 0.1) {
+      setFeeError("Depotgebühr muss zwischen 0 und 10 % p.a. liegen.");
+      return;
+    }
+    try {
+      const nextState = await PortfolioAPI.updateFeeSettings(txRate, depotRate);
+      setState(nextState);
+      setFeeSaved(true);
+    } catch (saveError) {
+      setFeeError(saveError.message);
     }
   };
 
@@ -419,6 +456,47 @@ export default function Portfolio() {
               Noch keine ETF Positionen. Starte in der ETF Liste mit deinem ersten Kauf.
             </Typography>
           )}
+      </Paper>
+
+      <Paper sx={{ p: 3 }}>
+        <Typography variant="h6" sx={{ mb: 2 }}>
+          Nebenkosten-Einstellungen
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Transaktionsgebühren werden direkt beim Kauf/Verkauf vom Cash abgezogen.
+          Depotgebühren werden monatlich automatisch berechnet (anteilig p.a.).
+        </Typography>
+        <Box sx={{ display: "flex", gap: 2, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <TextField
+            label="Transaktionsgebühr (%)"
+            size="small"
+            type="number"
+            slotProps={{ htmlInput: { min: 0, max: 10, step: 0.01 } }}
+            value={feeTransactionPct}
+            onChange={(e) => { setFeeTransactionPct(e.target.value); setFeeSaved(false); }}
+            sx={{ width: 200 }}
+            helperText="z. B. 0.1 für 0,1 % pro Trade"
+          />
+          <TextField
+            label="Depotgebühr p.a. (%)"
+            size="small"
+            type="number"
+            slotProps={{ htmlInput: { min: 0, max: 10, step: 0.01 } }}
+            value={feeDepotPct}
+            onChange={(e) => { setFeeDepotPct(e.target.value); setFeeSaved(false); }}
+            sx={{ width: 200 }}
+            helperText="z. B. 0.1 für 0,1 % p.a."
+          />
+          <Button variant="contained" onClick={handleSaveFees}>
+            Speichern
+          </Button>
+        </Box>
+        {feeError && (
+          <Alert severity="error" sx={{ mt: 2 }}>{feeError}</Alert>
+        )}
+        {feeSaved && (
+          <Alert severity="success" sx={{ mt: 2 }}>Gebühren gespeichert.</Alert>
+        )}
       </Paper>
     </Box>
   );

@@ -129,5 +129,26 @@ export const PortfolioAPI = {
       console.error("Failed to save ETF preferences:", error);
       throw error;
     }
+  },
+
+  async updateFeeSettings(transactionFeeRate, depotFeeRate) {
+    try {
+      const response = await fetch(`${PORTFOLIO_API_BASE}/fees`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transactionFeeRate, depotFeeRate })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `API error: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Failed to update fee settings:", error);
+      throw error;
+    }
   }
 };

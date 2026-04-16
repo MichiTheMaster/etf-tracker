@@ -67,6 +67,8 @@ export default function DashboardLayout({ children }) {
       });
     } finally {
       localStorage.removeItem("sessionAuthenticated");
+      localStorage.removeItem("sessionRoles");
+      localStorage.removeItem("sessionUsername");
       localStorage.setItem("forceLoggedOut", "1");
       navigate("/login", { replace: true });
     }

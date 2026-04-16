@@ -361,6 +361,9 @@ export function calculateMetrics(state, livePrices = null) {
     .filter((tx) => tx.type === "SELL")
     .reduce((sum, tx) => sum + (tx.realizedProfit || 0), 0);
 
+  const totalFees = state.transactions
+    .reduce((sum, tx) => sum + (Number(tx.fee) || 0), 0);
+
   return {
     cash: state.cash,
     investedValue,
@@ -370,6 +373,7 @@ export function calculateMetrics(state, livePrices = null) {
     unrealizedPnl,
     realizedPnl,
     totalPnl: unrealizedPnl + realizedPnl,
+    totalFees,
     positions
   };
 }
