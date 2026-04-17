@@ -21,14 +21,28 @@ if [ -d .git ]; then
   fi
 fi
 
-# Build step: prefer buildx if available
-if docker buildx version >/dev/null 2>&1; then
-  echo "Using docker buildx"
-  # Use compose build which will use buildx when available in many setups
-  docker compose build
+# Build step: try compose build with plain progress, fallback to manual image builds if it fails
+echo "Attempting docker compose build (plain progress)"
+if docker compose build --progress=plain; then
+  echo "Compose build succeeded"
 else
-  echo "buildx not available — falling back to classic build"
-  docker compose build
+  echo "Compose build failed — attempting manual image builds as fallback"
+  # Try backend build
+  if [ -f backend/Dockerfile ]; then
+    echo "Building backend image..."
+    docker build -f backend/Dockerfile -t etf-tracker-backend backend || echo "Backend build failed"
+  fi
+  # Try frontend build (common locations)
+  if [ -f etf-frontend/Dockerfile ]; then
+    echo "Building frontend image (etf-frontend)..."
+    docker build -f etf-frontend/Dockerfile -t etf-tracker-frontend etf-frontend || echo "Frontend build failed"
+  elif [ -f frontend/Dockerfile ]; then
+    echo "Building frontend image (frontend)..."
+    docker build -f frontend/Dockerfile -t etf-tracker-frontend frontend || echo "Frontend build failed"
+  fi
+  # Start compose without building
+  echo "Bringing up compose without build"
+  docker compose up -d --no-build
 fi
 
 # Start services
