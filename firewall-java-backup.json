@@ -1,0 +1,178 @@
+[
+  {
+    "Name": "TCP Query User{BC027A26-F23B-48FB-A3D1-6F83CA658877}C:\\program files\\java\\jdk-19\\bin\\java.exe",
+    "DisplayName": "Java(TM) Platform SE binary",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 4,
+    "Program": "C:\\program files\\java\\jdk-19\\bin\\java.exe"
+  },
+  {
+    "Name": "UDP Query User{5F7ACAA6-7BCE-48DD-BE95-BD073C753596}C:\\program files\\java\\jdk-19\\bin\\java.exe",
+    "DisplayName": "Java(TM) Platform SE binary",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 4,
+    "Program": "C:\\program files\\java\\jdk-19\\bin\\java.exe"
+  },
+  {
+    "Name": "TCP Query User{920BFB2D-64E8-4A38-978A-5514E01B210A}C:\\program files\\java\\jdk-19\\bin\\java.exe",
+    "DisplayName": "Java(TM) Platform SE binary",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 2,
+    "Program": "C:\\program files\\java\\jdk-19\\bin\\java.exe"
+  },
+  {
+    "Name": "UDP Query User{5753BF63-A033-405F-8BE7-65AF3EC1813A}C:\\program files\\java\\jdk-19\\bin\\java.exe",
+    "DisplayName": "Java(TM) Platform SE binary",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 2,
+    "Program": "C:\\program files\\java\\jdk-19\\bin\\java.exe"
+  },
+  {
+    "Name": "TCP Query User{CC5AFDC5-14FE-4F6C-BDDD-136C1D12CC49}C:\\users\\micha\\.p2\\pool\\plugins\\org.eclipse.justj.openjdk.hotspot.jre.full.win32.x86_64_19.0.2.v20230129-1123\\jre\\bin\\javaw.exe",
+    "DisplayName": "javaw",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 4,
+    "Program": "C:\\users\\micha\\.p2\\pool\\plugins\\org.eclipse.justj.openjdk.hotspot.jre.full.win32.x86_64_19.0.2.v20230129-1123\\jre\\bin\\javaw.exe"
+  },
+  {
+    "Name": "UDP Query User{1446FB36-9F9A-42A2-BF13-6149D0598A53}C:\\users\\micha\\.p2\\pool\\plugins\\org.eclipse.justj.openjdk.hotspot.jre.full.win32.x86_64_19.0.2.v20230129-1123\\jre\\bin\\javaw.exe",
+    "DisplayName": "javaw",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 4,
+    "Program": "C:\\users\\micha\\.p2\\pool\\plugins\\org.eclipse.justj.openjdk.hotspot.jre.full.win32.x86_64_19.0.2.v20230129-1123\\jre\\bin\\javaw.exe"
+  },
+  {
+    "Name": "TCP Query User{A4E55D2D-4DF3-43FA-8BEA-4E418A5D0201}C:\\users\\micha\\eclipse\\plugins\\org.eclipse.justj.openjdk.hotspot.jre.full.win32.x86_64_17.0.6.v20230204-1729\\jre\\bin\\javaw.exe",
+    "DisplayName": "javaw",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 2,
+    "Program": "C:\\users\\micha\\eclipse\\plugins\\org.eclipse.justj.openjdk.hotspot.jre.full.win32.x86_64_17.0.6.v20230204-1729\\jre\\bin\\javaw.exe"
+  },
+  {
+    "Name": "UDP Query User{D044279F-5E69-4F32-8B07-7F3C89567A52}C:\\users\\micha\\eclipse\\plugins\\org.eclipse.justj.openjdk.hotspot.jre.full.win32.x86_64_17.0.6.v20230204-1729\\jre\\bin\\javaw.exe",
+    "DisplayName": "javaw",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 2,
+    "Program": "C:\\users\\micha\\eclipse\\plugins\\org.eclipse.justj.openjdk.hotspot.jre.full.win32.x86_64_17.0.6.v20230204-1729\\jre\\bin\\javaw.exe"
+  },
+  {
+    "Name": "{43BD112A-97FA-4D4F-BE6C-03EF1837A2E0}",
+    "DisplayName": "javaw",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 4,
+    "Program": "C:\\users\\micha\\eclipse\\plugins\\org.eclipse.justj.openjdk.hotspot.jre.full.win32.x86_64_17.0.6.v20230204-1729\\jre\\bin\\javaw.exe"
+  },
+  {
+    "Name": "{F3EFB43F-FD50-4C03-A136-ADD220417F3C}",
+    "DisplayName": "javaw",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 4,
+    "Program": "C:\\users\\micha\\eclipse\\plugins\\org.eclipse.justj.openjdk.hotspot.jre.full.win32.x86_64_17.0.6.v20230204-1729\\jre\\bin\\javaw.exe"
+  },
+  {
+    "Name": "TCP Query User{1B66B3E2-67B9-4201-A24F-60C0E0C346E0}C:\\users\\micha\\.jdk\\jdk-21.0.8\\bin\\java.exe",
+    "DisplayName": "java",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 6,
+    "Program": "C:\\users\\micha\\.jdk\\jdk-21.0.8\\bin\\java.exe"
+  },
+  {
+    "Name": "UDP Query User{749CF5C1-D31D-420A-9A37-C134E2C86FBF}C:\\users\\micha\\.jdk\\jdk-21.0.8\\bin\\java.exe",
+    "DisplayName": "java",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 6,
+    "Program": "C:\\users\\micha\\.jdk\\jdk-21.0.8\\bin\\java.exe"
+  },
+  {
+    "Name": "TCP Query User{39F475D4-8783-485B-AD0E-307158A02CC5}C:\\program files\\jdk-24.0.2\\bin\\java.exe",
+    "DisplayName": "Java(TM) Platform SE binary",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 6,
+    "Program": "C:\\program files\\jdk-24.0.2\\bin\\java.exe"
+  },
+  {
+    "Name": "UDP Query User{2717E805-5280-4A26-B471-92BCFD32E85F}C:\\program files\\jdk-24.0.2\\bin\\java.exe",
+    "DisplayName": "Java(TM) Platform SE binary",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 6,
+    "Program": "C:\\program files\\jdk-24.0.2\\bin\\java.exe"
+  },
+  {
+    "Name": "TCP Query User{1ED0EE32-3FAF-4D22-992B-89FF22660FD9}C:\\users\\micha\\.vscode\\extensions\\sonarsource.sonarlint-vscode-5.0.0-win32-x64\\jre\\21.0.10-win32-x86_64.tar\\bin\\java.exe",
+    "DisplayName": "java",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 6,
+    "Program": "C:\\users\\micha\\.vscode\\extensions\\sonarsource.sonarlint-vscode-5.0.0-win32-x64\\jre\\21.0.10-win32-x86_64.tar\\bin\\java.exe"
+  },
+  {
+    "Name": "UDP Query User{530619D0-A78B-4F91-8F43-288A3E4F6555}C:\\users\\micha\\.vscode\\extensions\\sonarsource.sonarlint-vscode-5.0.0-win32-x64\\jre\\21.0.10-win32-x86_64.tar\\bin\\java.exe",
+    "DisplayName": "java",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 6,
+    "Program": "C:\\users\\micha\\.vscode\\extensions\\sonarsource.sonarlint-vscode-5.0.0-win32-x64\\jre\\21.0.10-win32-x86_64.tar\\bin\\java.exe"
+  },
+  {
+    "Name": "TCP Query User{D16995D3-E34D-45EF-8AE1-247A939497B7}C:\\dev\\node-v24.14.1-win-x64\\node.exe",
+    "DisplayName": "Node.js JavaScript Runtime",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 6,
+    "Program": "C:\\dev\\node-v24.14.1-win-x64\\node.exe"
+  },
+  {
+    "Name": "UDP Query User{5956BBEB-E544-45CE-979F-54F736B12D84}C:\\dev\\node-v24.14.1-win-x64\\node.exe",
+    "DisplayName": "Node.js JavaScript Runtime",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 6,
+    "Program": "C:\\dev\\node-v24.14.1-win-x64\\node.exe"
+  },
+  {
+    "Name": "TCP Query User{75C1F5C7-5A4C-47DD-AA36-15262D08BED5}C:\\users\\micha\\.vscode\\extensions\\sonarsource.sonarlint-vscode-5.1.0-win32-x64\\jre\\21.0.10-win32-x86_64.tar\\bin\\java.exe",
+    "DisplayName": "java",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 6,
+    "Program": "C:\\users\\micha\\.vscode\\extensions\\sonarsource.sonarlint-vscode-5.1.0-win32-x64\\jre\\21.0.10-win32-x86_64.tar\\bin\\java.exe"
+  },
+  {
+    "Name": "UDP Query User{C7EE9048-0D53-489B-A88D-A654747D0ABA}C:\\users\\micha\\.vscode\\extensions\\sonarsource.sonarlint-vscode-5.1.0-win32-x64\\jre\\21.0.10-win32-x86_64.tar\\bin\\java.exe",
+    "DisplayName": "java",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 6,
+    "Program": "C:\\users\\micha\\.vscode\\extensions\\sonarsource.sonarlint-vscode-5.1.0-win32-x64\\jre\\21.0.10-win32-x86_64.tar\\bin\\java.exe"
+  },
+  {
+    "Name": "TCP Query User{48D91908-4901-407D-9629-21FED8BE05A6}C:\\users\\micha\\.jdk\\jdk-25\\bin\\java.exe",
+    "DisplayName": "java",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 6,
+    "Program": "C:\\users\\micha\\.jdk\\jdk-25\\bin\\java.exe"
+  },
+  {
+    "Name": "UDP Query User{DF42E00E-3876-465A-8968-5B4D2AF31BF8}C:\\users\\micha\\.jdk\\jdk-25\\bin\\java.exe",
+    "DisplayName": "java",
+    "Enabled": 1,
+    "Direction": 1,
+    "Profile": 6,
+    "Program": "C:\\users\\micha\\.jdk\\jdk-25\\bin\\java.exe"
+  }
+]

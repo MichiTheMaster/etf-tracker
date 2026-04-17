@@ -14,6 +14,9 @@ $ErrorActionPreference = "Stop"
 $projectRoot = $PSScriptRoot
 $pidFile = Join-Path $projectRoot ".dev-processes.json"
 
+# Prefer JDK 25 if installed (adjust path if your JDK location differs)
+$preferredJava = "C:\\Users\\micha\\.jdk\\jdk-25"
+
 function Escape-PSString([string]$value) {
     return ($value -replace "'", "''")
 }
@@ -53,7 +56,11 @@ $dbUser = Escape-PSString([string]$creds.DB_USERNAME)
 $dbPass = Escape-PSString([string]$creds.DB_PASSWORD)
 $jwtSecret = Escape-PSString([string]$creds.JWT_SECRET)
 
-$backendCommand = "`$env:DB_URL='$dbUrl'; `$env:DB_USERNAME='$dbUser'; `$env:DB_PASSWORD='$dbPass'; `$env:JWT_SECRET='$jwtSecret'; Set-Location '$backendDir'; .\mvnw.cmd spring-boot:run"
+$backendCommand = if (Test-Path $preferredJava) {
+    "`$env:JAVA_HOME='$preferredJava'; `$env:PATH='$preferredJava\\bin;$env:PATH'; `$env:DB_URL='$dbUrl'; `$env:DB_USERNAME='$dbUser'; `$env:DB_PASSWORD='$dbPass'; `$env:JWT_SECRET='$jwtSecret'; Set-Location '$backendDir'; .\\mvnw.cmd spring-boot:run"
+} else {
+    "`$env:DB_URL='$dbUrl'; `$env:DB_USERNAME='$dbUser'; `$env:DB_PASSWORD='$dbPass'; `$env:JWT_SECRET='$jwtSecret'; Set-Location '$backendDir'; .\\mvnw.cmd spring-boot:run"
+}
 $frontendCommand = "Set-Location '$frontendDir'; npm start"
 
 $windowStyle = if ($Quiet) { "Minimized" } else { "Normal" }

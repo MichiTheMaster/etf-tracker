@@ -4,6 +4,9 @@
 $ErrorActionPreference = "Stop"
 $projectRoot = $PSScriptRoot
 
+# Prefer JDK 25 if installed (adjust path if your JDK location differs)
+$preferredJava = "C:\\Users\\micha\\.jdk\\jdk-25"
+
 # Credentials laden
 $credFile = Join-Path $projectRoot "credentials.json"
 if (-not (Test-Path $credFile)) {
@@ -26,8 +29,17 @@ Write-Host "(Stoppen mit STRG+C)" -ForegroundColor Yellow
 Write-Host ""
 
 # JAR starten – Credentials als JVM-Properties übergeben
-& java -jar $jar `
-    "-Dspring.datasource.url=$($creds.DB_URL)" `
-    "-Dspring.datasource.username=$($creds.DB_USERNAME)" `
-    "-Dspring.datasource.password=$($creds.DB_PASSWORD)" `
-    "-Djwt.secret=$($creds.JWT_SECRET)"
+if (Test-Path (Join-Path $preferredJava 'bin\java.exe')) {
+    $javaExec = Join-Path $preferredJava 'bin\java.exe'
+    & $javaExec -jar $jar `
+        "-Dspring.datasource.url=$($creds.DB_URL)" `
+        "-Dspring.datasource.username=$($creds.DB_USERNAME)" `
+        "-Dspring.datasource.password=$($creds.DB_PASSWORD)" `
+        "-Djwt.secret=$($creds.JWT_SECRET)"
+} else {
+    & java -jar $jar `
+        "-Dspring.datasource.url=$($creds.DB_URL)" `
+        "-Dspring.datasource.username=$($creds.DB_USERNAME)" `
+        "-Dspring.datasource.password=$($creds.DB_PASSWORD)" `
+        "-Djwt.secret=$($creds.JWT_SECRET)"
+}
