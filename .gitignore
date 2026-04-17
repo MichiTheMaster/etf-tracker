@@ -16,3 +16,7 @@ etf-frontend/build/
 # Editor/System
 .DS_Store
 Thumbs.db
+
+# Local docs and exports
+docs/*.csv
+docs/logging-overview.md
