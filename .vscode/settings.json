@@ -1,8 +1,0 @@
-{
-    "java.compile.nullAnalysis.mode": "automatic",
-    "workbench.colorTheme": "Dark 2026",
-    "[java]": {
-        "editor.defaultFormatter": "redhat.java",
-        "editor.formatOnSave": true
-    }
-}

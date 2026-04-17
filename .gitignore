@@ -17,6 +17,9 @@ etf-frontend/build/
 .DS_Store
 Thumbs.db
 
+# VS Code workspace settings (local)
+/.vscode/settings.json
+
 # Local docs and exports
 docs/*.csv
 docs/logging-overview.md
