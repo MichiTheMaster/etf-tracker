@@ -3,6 +3,7 @@ package com.etftracker.backend.config.logging;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingRequestWrapper;
@@ -25,6 +26,12 @@ public class RequestRedactionFilter extends OncePerRequestFilter {
     private static final Set<String> SENSITIVE_KEYS = new HashSet<>();
     private final ObjectMapper mapper = new ObjectMapper();
 
+    @Value("${app.privacy.log-masking.enabled:true}")
+    private boolean maskingEnabled;
+
+    @Value("${spring.profiles.active:default}")
+    private String env;
+
     static {
         SENSITIVE_KEYS.add("password");
         SENSITIVE_KEYS.add("token");
@@ -44,36 +51,48 @@ public class RequestRedactionFilter extends OncePerRequestFilter {
         if (correlationId == null || correlationId.isBlank()) {
             correlationId = UUID.randomUUID().toString();
         }
+
+        long startMs = System.currentTimeMillis();
+
         MDC.put("correlation_id", correlationId);
+        MDC.put("endpoint", request.getRequestURI());
+        MDC.put("method", request.getMethod());
+        MDC.put("env", env);
 
         try {
             filterChain.doFilter(wrappedRequest, wrappedResponse);
 
-            // After processing, attempt to read request body (if JSON) and produce a
-            // redacted copy
-            String contentType = request.getContentType() == null ? "" : request.getContentType();
-            if (contentType.contains("application/json")) {
-                byte[] buf = wrappedRequest.getContentAsByteArray();
-                if (buf != null && buf.length > 0) {
-                    String body = new String(buf, StandardCharsets.UTF_8);
-                    try {
-                        Map<String, Object> json = mapper.readValue(body, new TypeReference<>() {
-                        });
-                        redactMap(json);
-                        String redacted = mapper.writeValueAsString(json);
-                        // expose as request attribute for any structured logging usage
-                        request.setAttribute("sanitizedRequestBody", redacted);
-                    } catch (Exception ignored) {
-                        // not a parseable JSON or unexpected structure; skip redaction
+            MDC.put("status", String.valueOf(wrappedResponse.getStatus()));
+            MDC.put("latency_ms", String.valueOf(System.currentTimeMillis() - startMs));
+
+            if (maskingEnabled) {
+                String contentType = request.getContentType() == null ? "" : request.getContentType();
+                if (contentType.contains("application/json")) {
+                    byte[] buf = wrappedRequest.getContentAsByteArray();
+                    if (buf != null && buf.length > 0) {
+                        String body = new String(buf, StandardCharsets.UTF_8);
+                        try {
+                            Map<String, Object> json = mapper.readValue(body, new TypeReference<>() {
+                            });
+                            redactMap(json);
+                            String redacted = mapper.writeValueAsString(json);
+                            request.setAttribute("sanitizedRequestBody", redacted);
+                        } catch (Exception ignored) {
+                            // not parseable JSON — skip redaction
+                        }
                     }
                 }
             }
 
-            // copy response back to output
             wrappedResponse.copyBodyToResponse();
 
         } finally {
             MDC.remove("correlation_id");
+            MDC.remove("endpoint");
+            MDC.remove("method");
+            MDC.remove("env");
+            MDC.remove("status");
+            MDC.remove("latency_ms");
         }
     }
 
@@ -89,8 +108,6 @@ public class RequestRedactionFilter extends OncePerRequestFilter {
             } else if (val instanceof Map) {
                 redactMap((Map<String, Object>) val);
             }
-            // arrays and other complex structures are left untouched in this simple
-            // implementation
         }
     }
 }

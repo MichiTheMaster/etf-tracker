@@ -26,6 +26,11 @@ public class AuditLogService {
         auditLogRepository.save(new AuditLog(username, category, action, details));
     }
 
+    /** Log an event using an internal user ID instead of a plain username. */
+    public void logById(Long userId, String category, String action, String details) {
+        auditLogRepository.save(new AuditLog("uid:" + userId, category, action, details));
+    }
+
     public Page<AuditLog> getPage(int page, int size) {
         return auditLogRepository.findAllByOrderByTimestampDesc(PageRequest.of(page, size));
     }

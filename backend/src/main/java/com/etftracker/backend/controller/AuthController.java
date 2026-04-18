@@ -50,7 +50,11 @@ public class AuthController {
     public ResponseEntity<Object> register(@RequestBody RegisterRequest request) {
         try {
             AuthResponse response = userService.register(request);
-            auditLogService.log(request.getUsername(), "AUTH", "Registrierung", "E-Mail: " + request.getEmail());
+            userService.findUserIdByUsername(request.getUsername())
+                    .ifPresentOrElse(
+                            id -> auditLogService.logById(id, "AUTH", "Registrierung", "Neue Registrierung"),
+                            () -> auditLogService.log(request.getUsername(), "AUTH", "Registrierung",
+                                    "Neue Registrierung"));
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
@@ -91,9 +95,9 @@ public class AuthController {
                     .maxAge(24L * 60 * 60)
                     .build();
 
-            auditLogService.log(user.getUsername(), "AUTH", "Login erfolgreich", loginResult.getLoginDetails());
+            auditLogService.logById(user.getId(), "AUTH", "Login erfolgreich", loginResult.getLoginDetails());
             if (loginResult.isUnusualActivity()) {
-                auditLogService.log(user.getUsername(), "AUTH", "Ungewöhnliche Aktivität",
+                auditLogService.logById(user.getId(), "AUTH", "Ungewöhnliche Aktivität",
                         loginResult.getLoginDetails());
             }
             return ResponseEntity.ok()
@@ -101,12 +105,16 @@ public class AuthController {
                     .body(new AuthResponse(user.getUsername(), user.getEmail(), user.isEmailVerified(), null,
                             userService.isEmailVerificationRequired()));
         } catch (IllegalArgumentException ex) {
-            auditLogService.log(request.getUsername(), "AUTH", "Login fehlgeschlagen",
+            String actor = userService.findUserIdByUsername(request.getUsername())
+                    .map(id -> "uid:" + id).orElse("[unknown]");
+            auditLogService.log(actor, "AUTH", "Login fehlgeschlagen",
                     "IP: " + extractIpAddress(httpRequest));
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", ex.getMessage()));
         } catch (IllegalStateException ex) {
             if (ex.getMessage() != null && ex.getMessage().toLowerCase().contains("gesperrt")) {
-                auditLogService.log(request.getUsername(), "AUTH", "Account gesperrt",
+                String actor = userService.findUserIdByUsername(request.getUsername())
+                        .map(id -> "uid:" + id).orElse("[unknown]");
+                auditLogService.log(actor, "AUTH", "Account gesperrt",
                         "IP: " + extractIpAddress(httpRequest));
             }
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", ex.getMessage()));

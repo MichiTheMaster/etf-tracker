@@ -7,6 +7,7 @@ import com.etftracker.backend.entity.Role;
 import com.etftracker.backend.entity.User;
 import com.etftracker.backend.repository.RoleRepository;
 import com.etftracker.backend.repository.UserRepository;
+import com.etftracker.backend.config.logging.IpUtil;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -15,6 +16,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class UserService {
@@ -33,6 +35,9 @@ public class UserService {
 
     @Value("${app.email-verification.required:false}")
     private boolean emailVerificationRequired;
+
+    @Value("${app.privacy.ip-truncation.enabled:true}")
+    private boolean ipTruncationEnabled;
 
     public UserService(UserRepository userRepository, RoleRepository roleRepository,
             EmailVerificationService emailVerificationService, AppSettingService appSettingService) {
@@ -86,6 +91,9 @@ public class UserService {
 
         String normalizedUsername = username == null ? "" : username.trim();
         String normalizedIp = normalize(ipAddress, 64);
+        if (ipTruncationEnabled) {
+            normalizedIp = IpUtil.truncate(normalizedIp);
+        }
         String normalizedUserAgent = normalize(userAgent, 255);
 
         User user = userRepository.findByUsername(normalizedUsername)
@@ -134,6 +142,13 @@ public class UserService {
 
     public boolean isEmailVerificationRequired() {
         return emailVerificationRequired;
+    }
+
+    public Optional<Long> findUserIdByUsername(String username) {
+        if (username == null || username.isBlank()) {
+            return Optional.empty();
+        }
+        return userRepository.findByUsername(username.trim()).map(User::getId);
     }
 
     public void unlockAccount(Long userId) {
