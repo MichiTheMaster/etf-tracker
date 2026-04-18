@@ -66,10 +66,10 @@ $frontendCommand = "Set-Location '$frontendDir'; npm start"
 $windowStyle = if ($Quiet) { "Minimized" } else { "Normal" }
 
 Write-Host "Starte Backend (Spring Boot)..." -ForegroundColor Cyan
-$backendProcess = Start-Process -FilePath "pwsh" -ArgumentList @("-NoLogo", "-NoExit", "-Command", $backendCommand) -PassThru -WindowStyle $windowStyle
+$backendProcess = Start-Process -FilePath "pwsh" -ArgumentList @("-NoLogo", "-Command", $backendCommand) -PassThru -WindowStyle $windowStyle
 
 Write-Host "Starte Frontend (React)..." -ForegroundColor Cyan
-$frontendProcess = Start-Process -FilePath "pwsh" -ArgumentList @("-NoLogo", "-NoExit", "-Command", $frontendCommand) -PassThru -WindowStyle $windowStyle
+$frontendProcess = Start-Process -FilePath "pwsh" -ArgumentList @("-NoLogo", "-Command", $frontendCommand) -PassThru -WindowStyle $windowStyle
 
 $state = [PSCustomObject]@{
     startedAt = (Get-Date).ToString("o")
