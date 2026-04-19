@@ -122,6 +122,10 @@ export default function Portfolio() {
     if (!state) {
       return;
     }
+    // If we already have initial quotes (loaded during mount), skip immediate refresh.
+    if (quotes && Object.keys(quotes).length > 0) {
+      return;
+    }
     refreshQuotes(true);
   }, [state, refreshQuotes]);
 
@@ -149,6 +153,7 @@ export default function Portfolio() {
     : null;
 
   const metrics = state ? calculateMetrics(state, priceMap) : null;
+  const quotesReady = hasValidQuoteCoverage(quotes, Object.keys(state?.holdings || {}));
 
   const handleSort = useCallback((field) => {
     setSortConfig((previous) => {
@@ -304,7 +309,7 @@ export default function Portfolio() {
               Unrealized P/L
             </Typography>
             <Typography variant="h5" color={metrics.unrealizedPnl >= 0 ? "success.main" : "error.main"}>
-              {formatCurrency(metrics.unrealizedPnl)}
+              {quotesReady ? formatCurrency(metrics.unrealizedPnl) : "Lädt..."}
             </Typography>
           </Paper>
         </Grid>
