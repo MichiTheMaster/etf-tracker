@@ -23,11 +23,11 @@ function Stop-ProcessTree([int]$rootPid) {
     }
     # Kill in reverse order (leaves first)
     [array]::Reverse($all)
-    foreach ($pid in $all) {
-        $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+    foreach ($processId in $all) {
+        $proc = Get-Process -Id $processId -ErrorAction SilentlyContinue
         if ($proc) {
-            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-            Write-Host "Prozess gestoppt: PID $pid ($($proc.ProcessName))" -ForegroundColor Green
+            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+            Write-Host "Prozess gestoppt: PID $processId ($($proc.ProcessName))" -ForegroundColor Green
         }
     }
 }
