@@ -1,4 +1,4 @@
-import { API_BASE } from "./apiBase";
+import { apiGet } from "./apiClient";
 
 const STORAGE_KEY = "etfSimulatorStateV1";
 const STORAGE_KEY_PREFIX_V2 = "etfSimulatorStateV2:";
@@ -187,15 +187,9 @@ export async function searchEtfPool(query, limit = 15) {
 
   try {
     const params = new URLSearchParams({ q: query.trim(), limit: String(limit) });
-    const resp = await fetch(`${API_BASE}/api/market/pool?${params.toString()}`, {
-      credentials: "include"
+    const data = await apiGet(`/api/market/pool?${params.toString()}`, {
+      fallbackMessage: "ETF-Pool konnte nicht geladen werden."
     });
-
-    if (!resp.ok) {
-      return [];
-    }
-
-    const data = await resp.json();
     return Array.isArray(data) ? data : [];
   } catch (_error) {
     return [];
@@ -212,15 +206,10 @@ export async function fetchLivePrices(forceRefresh = false, symbols = null) {
       params.set("symbols", symbols.join(","));
     }
     const query = params.toString();
-    const url = query
-      ? `${API_BASE}/api/market/quotes?${query}`
-      : `${API_BASE}/api/market/quotes`;
-
-    const resp = await fetch(url, {
-      credentials: "include"
+    const data = await apiGet(query ? `/api/market/quotes?${query}` : "/api/market/quotes", {
+      fallbackMessage: "Kurse konnten nicht geladen werden."
     });
-    if (!resp.ok) return null;
-    return await resp.json();
+    return data;
   } catch (e) {
     return null;
   }

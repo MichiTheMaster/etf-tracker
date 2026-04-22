@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link as RouterLink, useSearchParams } from "react-router-dom";
 import { Alert, Box, Button, CircularProgress, Paper, Typography } from "@mui/material";
-import { API_BASE } from "./apiBase";
+import { apiGet } from "./apiClient";
 
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams();
@@ -19,24 +19,16 @@ export default function VerifyEmail() {
 
     const verify = async () => {
       try {
-        const response = await fetch(`${API_BASE}/auth/verify-email?token=${encodeURIComponent(token)}`, {
-          method: "GET",
-          credentials: "include"
+        const payload = await apiGet(`/auth/verify-email?token=${encodeURIComponent(token)}`, {
+          fallbackMessage: "Die E-Mail konnte nicht bestaetigt werden."
         });
-        const payload = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          setStatus("error");
-          setMessage(payload.message || "Die E-Mail konnte nicht bestaetigt werden.");
-          return;
-        }
 
         setStatus("success");
-        setMessage(payload.message || "E-Mail-Adresse erfolgreich bestaetigt.");
+        setMessage(payload?.message || "E-Mail-Adresse erfolgreich bestaetigt.");
       } catch (error) {
         console.error("Email verification failed", error);
         setStatus("error");
-        setMessage("Server nicht erreichbar.");
+        setMessage(error.message || "Server nicht erreichbar.");
       }
     };
 

@@ -8,6 +8,8 @@ class BackendApplicationTests {
 
 	@Test
 	void contextLoads() {
+		// Verifies that the Spring application context starts with the default test
+		// configuration.
 	}
 
 }

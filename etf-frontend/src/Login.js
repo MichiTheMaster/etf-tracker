@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { TextField, Button, Box, Typography, Paper, CircularProgress } from "@mui/material";
 import LegalFooter from "./LegalFooter";
-import { API_BASE } from "./apiBase";
+import { apiPost } from "./apiClient";
+import { loadCurrentUser } from "./sessionClient";
 
-export default function Login() {
+export default function Login({ onAuthenticated }) {
   const navigate = useNavigate();
   const [mode, setMode] = useState("login");
   const [username, setUsername] = useState("");
@@ -16,39 +17,24 @@ export default function Login() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    const hasSession = localStorage.getItem("sessionAuthenticated") === "1";
     const forceLoggedOut = localStorage.getItem("forceLoggedOut") === "1";
 
-    if (hasSession && !forceLoggedOut) {
+    if (localStorage.getItem("sessionAuthenticated") === "1" && !forceLoggedOut) {
       navigate("/dashboard", { replace: true });
     }
   }, [navigate]);
 
   const loginAfterRegister = async () => {
-    const loginResponse = await fetch(`${API_BASE}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ username, password })
-    });
+    await apiPost(
+      "/auth/login",
+      { username: username.trim(), password },
+      { fallbackMessage: "Auto-Login fehlgeschlagen." }
+    );
 
-    if (!loginResponse.ok) {
-      throw new Error("Auto-login failed");
-    }
+    const currentUser = await loadCurrentUser();
+    onAuthenticated?.(currentUser);
 
-    localStorage.setItem("sessionAuthenticated", "1");
-    localStorage.setItem("sessionUsername", username.trim().toLowerCase());
-    localStorage.removeItem("forceLoggedOut");
     navigate("/dashboard");
-  };
-
-  const getResponseMessage = async (response, fallbackMessage) => {
-    try {
-      const payload = await response.json();
-      return payload.message || fallbackMessage;
-    } catch {
-      return fallbackMessage;
-    }
   };
 
   const handleAuth = async () => {
@@ -67,17 +53,11 @@ export default function Login() {
           return;
         }
 
-        const response = await fetch(`${API_BASE}/auth/forgot-password`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ email: email.trim() })
-        });
-
-        if (!response.ok) {
-          setMessage(await getResponseMessage(response, "Passwort-Reset fehlgeschlagen"));
-          return;
-        }
+        await apiPost(
+          "/auth/forgot-password",
+          { email: email.trim() },
+          { fallbackMessage: "Passwort-Reset fehlgeschlagen" }
+        );
 
         setMessageType("success");
         setMessage("Falls ein Account mit dieser E-Mail-Adresse existiert, wurde eine Reset-E-Mail versendet");
@@ -100,23 +80,15 @@ export default function Login() {
           return;
         }
 
-        const registerResponse = await fetch(`${API_BASE}/auth/register`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
+        const registerPayload = await apiPost(
+          "/auth/register",
+          {
             username: username.trim(),
             email: email.trim(),
             password
-          })
-        });
-
-        if (!registerResponse.ok) {
-          setMessage(await getResponseMessage(registerResponse, "Registrierung fehlgeschlagen"));
-          return;
-        }
-
-        const registerPayload = await registerResponse.json();
+          },
+          { fallbackMessage: "Registrierung fehlgeschlagen" }
+        );
 
         if (registerPayload.verificationRequired) {
           setMessageType("success");
@@ -129,25 +101,20 @@ export default function Login() {
 
         await loginAfterRegister();
       } else {
-        const response = await fetch(`${API_BASE}/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ username: username.trim(), password })
-        });
+        await apiPost(
+          "/auth/login",
+          { username: username.trim(), password },
+          { fallbackMessage: "Login fehlgeschlagen" }
+        );
 
-        if (response.ok) {
-          localStorage.setItem("sessionAuthenticated", "1");
-          localStorage.setItem("sessionUsername", username.trim().toLowerCase());
-          localStorage.removeItem("forceLoggedOut");
-          navigate("/dashboard");
-        } else {
-          setMessage(await getResponseMessage(response, "Login fehlgeschlagen"));
-        }
+        const currentUser = await loadCurrentUser();
+        onAuthenticated?.(currentUser);
+
+        navigate("/dashboard");
       }
     } catch (error) {
       console.error("Auth error:", error);
-      setMessage("Server nicht erreichbar");
+      setMessage(error.message || "Server nicht erreichbar");
     } finally {
       setIsSubmitting(false);
     }

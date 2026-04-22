@@ -40,11 +40,11 @@ public class EtfPreferenceService {
                 .filter(UserEtfSelection::isSelected)
                 .map(UserEtfSelection::getSymbol)
                 .sorted()
-                .forEach(response.selectedSymbols::add);
+                .forEach(response.getSelectedSymbols()::add);
 
         items.stream()
                 .filter(UserEtfSelection::isSelected)
-                .forEach(item -> response.selectedAddedAt.put(
+                .forEach(item -> response.getSelectedAddedAt().put(
                         item.getSymbol(),
                         item.getCreatedAt() == null ? null
                                 : item.getCreatedAt().format(DateTimeFormatter.ISO_DATE_TIME)));
@@ -52,7 +52,7 @@ public class EtfPreferenceService {
         items.stream()
                 .filter(UserEtfSelection::isCustom)
                 .sorted(Comparator.comparing(UserEtfSelection::getSymbol))
-                .forEach(item -> response.customEtfs.add(
+                .forEach(item -> response.getCustomEtfs().add(
                         new EtfPreferenceResponse.EtfItem(
                                 item.getSymbol(),
                                 item.getName(),
@@ -63,9 +63,10 @@ public class EtfPreferenceService {
                                 item.getCreatedAt() == null ? null
                                         : item.getCreatedAt().format(DateTimeFormatter.ISO_DATE_TIME))));
 
-        if (response.selectedSymbols.isEmpty()) {
-            response.selectedSymbols = new ArrayList<>(DEFAULT_SYMBOLS);
-            response.selectedSymbols.sort(String::compareTo);
+        if (response.getSelectedSymbols().isEmpty()) {
+            List<String> defaultSymbols = new ArrayList<>(DEFAULT_SYMBOLS);
+            defaultSymbols.sort(String::compareTo);
+            response.setSelectedSymbols(defaultSymbols);
         }
 
         return response;
@@ -73,15 +74,16 @@ public class EtfPreferenceService {
 
     @Transactional
     public EtfPreferenceResponse save(User user, EtfPreferenceRequest request) {
-        List<String> selectedSymbols = request.selectedSymbols == null ? List.of() : request.selectedSymbols;
-        List<EtfPreferenceRequest.EtfItem> customEtfs = request.customEtfs == null ? List.of() : request.customEtfs;
+        List<String> selectedSymbols = request.getSelectedSymbols() == null ? List.of() : request.getSelectedSymbols();
+        List<EtfPreferenceRequest.EtfItem> customEtfs = request.getCustomEtfs() == null ? List.of()
+                : request.getCustomEtfs();
 
         Map<String, EtfPreferenceRequest.EtfItem> customBySymbol = new HashMap<>();
         for (EtfPreferenceRequest.EtfItem item : customEtfs) {
-            if (item == null || item.symbol == null || item.symbol.isBlank()) {
+            if (item == null || item.getSymbol() == null || item.getSymbol().isBlank()) {
                 continue;
             }
-            String normalizedSymbol = item.symbol.trim().toUpperCase(Locale.ROOT);
+            String normalizedSymbol = item.getSymbol().trim().toUpperCase(Locale.ROOT);
             customBySymbol.put(normalizedSymbol, item);
         }
 
@@ -110,18 +112,18 @@ public class EtfPreferenceService {
             boolean isCustom = customBySymbol.containsKey(symbol);
             EtfPreferenceRequest.EtfItem custom = customBySymbol.get(symbol);
 
-            String name = isCustom && custom.name != null && !custom.name.isBlank()
-                    ? custom.name.trim()
+            String name = isCustom && custom.getName() != null && !custom.getName().isBlank()
+                    ? custom.getName().trim()
                     : symbol;
-            BigDecimal price = isCustom && custom.price != null && custom.price > 0
-                    ? BigDecimal.valueOf(custom.price)
+            BigDecimal price = isCustom && custom.getPrice() != null && custom.getPrice() > 0
+                    ? BigDecimal.valueOf(custom.getPrice())
                     : BigDecimal.ZERO;
-            BigDecimal ter = isCustom && custom.ter != null && custom.ter >= 0
-                    ? BigDecimal.valueOf(custom.ter)
+            BigDecimal ter = isCustom && custom.getTer() != null && custom.getTer() >= 0
+                    ? BigDecimal.valueOf(custom.getTer())
                     : BigDecimal.ZERO;
 
-            String source = isCustom && custom.source != null && !custom.source.isBlank()
-                    ? custom.source.trim()
+            String source = isCustom && custom.getSource() != null && !custom.getSource().isBlank()
+                    ? custom.getSource().trim()
                     : isCustom ? "custom" : null;
 
             UserEtfSelection selection = new UserEtfSelection(user, symbol, name, price, ter, true, isCustom);

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { TextField, Button, Box, Typography, Paper, CircularProgress, Alert } from "@mui/material";
 import LegalFooter from "./LegalFooter";
-import { API_BASE } from "./apiBase";
+import { apiPost } from "./apiClient";
 
 export default function ResetPassword() {
   const navigate = useNavigate();
@@ -42,18 +42,11 @@ export default function ResetPassword() {
         return;
       }
 
-      const response = await fetch(`${API_BASE}/auth/reset-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ token, newPassword })
-      });
-
-      if (!response.ok) {
-        const payload = await response.json();
-        setMessage(payload.message || "Passwort-Reset fehlgeschlagen");
-        return;
-      }
+      await apiPost(
+        "/auth/reset-password",
+        { token, newPassword },
+        { fallbackMessage: "Passwort-Reset fehlgeschlagen" }
+      );
 
       setMessageType("success");
       setMessage("Passwort erfolgreich zurückgesetzt. Du kannst dich jetzt anmelden.");
@@ -64,7 +57,7 @@ export default function ResetPassword() {
       }, 3000);
 
     } catch (error) {
-      setMessage("Netzwerkfehler. Bitte versuche es später erneut.");
+      setMessage(error.message || "Netzwerkfehler. Bitte versuche es später erneut.");
     } finally {
       setIsSubmitting(false);
     }

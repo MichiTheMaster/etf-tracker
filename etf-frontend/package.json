@@ -12,19 +12,28 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^13.5.0",
+    "prop-types": "^15.8.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-router-dom": "^6.30.1",
+    "react-router-dom": "^7.14.2",
     "web-vitals": "^2.1.4"
   },
   "devDependencies": {
+    "@babel/core": "^7.28.4",
+    "@babel/preset-env": "^7.28.3",
+    "@babel/preset-react": "^7.27.1",
     "@vitejs/plugin-react": "^5.1.0",
+    "babel-jest": "^30.2.0",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^30.2.0",
+    "jest-environment-jsdom": "^30.2.0",
     "vite": "^7.1.10"
   },
   "scripts": {
     "start": "vite",
     "dev": "vite",
     "build": "vite build --outDir build",
+    "test": "jest --runInBand",
     "preview": "vite preview --port 3000"
   },
   "eslintConfig": {

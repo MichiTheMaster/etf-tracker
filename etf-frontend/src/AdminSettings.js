@@ -14,7 +14,7 @@ import {
   TextField,
   Typography
 } from "@mui/material";
-import { API_BASE } from "./apiBase";
+import { apiDelete, apiGet, apiPost, apiRequest } from "./apiClient";
 
 const FALLBACK_KEY = "market.fallbackPricesEnabled";
 const ALIAS_PREFIX = "market.alias.";
@@ -23,7 +23,7 @@ const INACTIVITY_WARNING_KEY = "app.session.inactivityWarningMinutes";
 const MAX_FAILED_ATTEMPTS_KEY = "app.security.maxFailedLoginAttempts";
 const LOCK_DURATION_MINUTES_KEY = "app.security.lockDurationMinutes";
 
-export default function AdminSettings() {
+export default function AdminSettings({ currentUser, refreshCurrentUser }) {
   const [settings, setSettings] = useState([]);
   const [users, setUsers] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
@@ -40,7 +40,6 @@ export default function AdminSettings() {
   const [auditToDate, setAuditToDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [userLoading, setUserLoading] = useState(true);
-  const [canWriteAdmin, setCanWriteAdmin] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [fallbackEnabled, setFallbackEnabled] = useState("true");
@@ -50,6 +49,8 @@ export default function AdminSettings() {
   const [lockDurationMinutes, setLockDurationMinutes] = useState("30");
   const [aliasBase, setAliasBase] = useState("");
   const [aliasTarget, setAliasTarget] = useState("");
+  const roles = Array.isArray(currentUser?.roles) ? currentUser.roles : [];
+  const canWriteAdmin = roles.includes("ADMIN");
 
   const loadSettings = async () => {
     setLoading(true);
@@ -57,16 +58,9 @@ export default function AdminSettings() {
     setMessage("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/admin/settings`, {
-        method: "GET",
-        credentials: "include"
+      const data = await apiGet("/api/admin/settings", {
+        fallbackMessage: "Settings konnten nicht geladen werden."
       });
-
-      if (!response.ok) {
-        throw new Error(`Settings konnten nicht geladen werden (${response.status})`);
-      }
-
-      const data = await response.json();
       const list = Array.isArray(data) ? data : [];
       setSettings(list);
 
@@ -105,16 +99,9 @@ export default function AdminSettings() {
     setUserLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE}/api/admin/users`, {
-        method: "GET",
-        credentials: "include"
+      const data = await apiGet("/api/admin/users", {
+        fallbackMessage: "Benutzer konnten nicht geladen werden."
       });
-
-      if (!response.ok) {
-        throw new Error(`Benutzer konnten nicht geladen werden (${response.status})`);
-      }
-
-      const data = await response.json();
       setUsers(Array.isArray(data) ? data : []);
     } catch (loadError) {
       setError(loadError?.message || "Benutzer konnten nicht geladen werden.");
@@ -126,16 +113,9 @@ export default function AdminSettings() {
   const loadSecurityOverview = async () => {
     setSecurityLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/admin/security/overview`, {
-        method: "GET",
-        credentials: "include"
+      const data = await apiGet("/api/admin/security/overview", {
+        fallbackMessage: "Sicherheitsdaten konnten nicht geladen werden."
       });
-
-      if (!response.ok) {
-        throw new Error(`Sicherheitsdaten konnten nicht geladen werden (${response.status})`);
-      }
-
-      const data = await response.json();
       setSecurityOverview(data);
     } catch (loadError) {
       setError(loadError?.message || "Sicherheitsdaten konnten nicht geladen werden.");
@@ -147,16 +127,9 @@ export default function AdminSettings() {
   const loadSettingsHistory = async () => {
     setHistoryLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/admin/settings/history`, {
-        method: "GET",
-        credentials: "include"
+      const data = await apiGet("/api/admin/settings/history", {
+        fallbackMessage: "Setting-Historie konnte nicht geladen werden."
       });
-
-      if (!response.ok) {
-        throw new Error(`Setting-Historie konnte nicht geladen werden (${response.status})`);
-      }
-
-      const data = await response.json();
       setSettingsHistory(Array.isArray(data) ? data : []);
     } catch (loadError) {
       setError(loadError?.message || "Setting-Historie konnte nicht geladen werden.");
@@ -165,32 +138,9 @@ export default function AdminSettings() {
     }
   };
 
-  const loadCurrentUserPermissions = async () => {
-    try {
-      const response = await fetch(`${API_BASE}/api/me`, {
-        method: "GET",
-        credentials: "include"
-      });
-
-      if (!response.ok) {
-        setCanWriteAdmin(false);
-        return;
-      }
-
-      const data = await response.json();
-      const roles = Array.isArray(data?.roles)
-        ? data.roles.map((role) => String(role).toUpperCase())
-        : [];
-      setCanWriteAdmin(roles.includes("ADMIN"));
-    } catch {
-      setCanWriteAdmin(false);
-    }
-  };
-
   // Initial data load must run once on mount; audit filter updates are triggered by explicit actions.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    loadCurrentUserPermissions();
     loadSettings();
     loadSettingsHistory();
     loadSecurityOverview();
@@ -235,12 +185,9 @@ export default function AdminSettings() {
       if (fromIso) params.set("from", fromIso);
       if (toIso) params.set("to", toIso);
 
-      const response = await fetch(`${API_BASE}/api/admin/audit-log?${params.toString()}`, {
-        method: "GET",
-        credentials: "include"
+      const data = await apiGet(`/api/admin/audit-log?${params.toString()}`, {
+        fallbackMessage: "Audit-Log konnte nicht geladen werden."
       });
-      if (!response.ok) throw new Error(`Audit-Log konnte nicht geladen werden (${response.status})`);
-      const data = await response.json();
       setAuditLog(Array.isArray(data.content) ? data.content : []);
       setAuditTotalPages(data.totalPages ?? 0);
       setAuditPage(data.page ?? 0);
@@ -280,16 +227,9 @@ export default function AdminSettings() {
       if (fromIso) params.set("from", fromIso);
       if (toIso) params.set("to", toIso);
 
-      const response = await fetch(`${API_BASE}/api/admin/audit-log/export?${params.toString()}`, {
-        method: "GET",
-        credentials: "include"
+      const csvText = await apiGet(`/api/admin/audit-log/export?${params.toString()}`, {
+        fallbackMessage: "CSV-Export fehlgeschlagen."
       });
-
-      if (!response.ok) {
-        throw new Error(`CSV-Export fehlgeschlagen (${response.status})`);
-      }
-
-      const csvText = await response.text();
       const blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -316,27 +256,15 @@ export default function AdminSettings() {
   }, [settings]);
 
   const upsertSetting = async (key, value) => {
-    const response = await fetch(`${API_BASE}/api/admin/settings`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key, value })
+    await apiPost("/api/admin/settings", { key, value }, {
+      fallbackMessage: `Setting ${key} konnte nicht gespeichert werden.`
     });
-
-    if (!response.ok) {
-      throw new Error(`Setting ${key} konnte nicht gespeichert werden.`);
-    }
   };
 
   const deleteSetting = async (key) => {
-    const response = await fetch(`${API_BASE}/api/admin/settings/${encodeURIComponent(key)}`, {
-      method: "DELETE",
-      credentials: "include"
+    await apiDelete(`/api/admin/settings/${encodeURIComponent(key)}`, {
+      fallbackMessage: `Setting ${key} konnte nicht geloescht werden.`
     });
-
-    if (!response.ok && response.status !== 204) {
-      throw new Error(`Setting ${key} konnte nicht geloescht werden.`);
-    }
   };
 
   const saveFallbackSetting = async () => {
@@ -471,14 +399,9 @@ export default function AdminSettings() {
     setError("");
     setMessage("");
     try {
-      const response = await fetch(`${API_BASE}/api/admin/security/locks/${encodeURIComponent(userId)}`, {
-        method: "DELETE",
-        credentials: "include"
+      await apiDelete(`/api/admin/security/locks/${encodeURIComponent(userId)}`, {
+        fallbackMessage: "Konto konnte nicht entsperrt werden."
       });
-
-      if (!response.ok) {
-        throw new Error(`Konto konnte nicht entsperrt werden (${response.status})`);
-      }
 
       setMessage("Konto entsperrt.");
       await Promise.all([loadUsers(), loadSecurityOverview(), loadAuditLog(0)]);
@@ -496,14 +419,10 @@ export default function AdminSettings() {
     const method = isAdmin ? "DELETE" : "PUT";
 
     try {
-      const response = await fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(user.id)}/roles/admin`, {
+      await apiRequest(`/api/admin/users/${encodeURIComponent(user.id)}/roles/admin`, {
         method,
-        credentials: "include"
+        fallbackMessage: "Rolle konnte nicht aktualisiert werden."
       });
-
-      if (!response.ok) {
-        throw new Error(`Rolle konnte nicht aktualisiert werden (${response.status})`);
-      }
 
       setMessage(isAdmin
         ? `ADMIN-Rolle fuer ${user.username} entfernt.`
@@ -524,14 +443,10 @@ export default function AdminSettings() {
     const method = isReadonlyAdmin ? "DELETE" : "PUT";
 
     try {
-      const response = await fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(user.id)}/roles/readonly-admin`, {
+      await apiRequest(`/api/admin/users/${encodeURIComponent(user.id)}/roles/readonly-admin`, {
         method,
-        credentials: "include"
+        fallbackMessage: "Rolle konnte nicht aktualisiert werden."
       });
-
-      if (!response.ok) {
-        throw new Error(`Rolle konnte nicht aktualisiert werden (${response.status})`);
-      }
 
       setMessage(isReadonlyAdmin
         ? `READONLY_ADMIN-Rolle fuer ${user.username} entfernt.`
@@ -548,17 +463,17 @@ export default function AdminSettings() {
     setMessage("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/admin/security/self/restore-admin`, {
-        method: "POST",
-        credentials: "include"
+      await apiPost("/api/admin/security/self/restore-admin", null, {
+        fallbackMessage: "Admin-Rechte konnten nicht wiederhergestellt werden."
       });
 
-      if (!response.ok) {
-        throw new Error(`Admin-Rechte konnten nicht wiederhergestellt werden (${response.status})`);
-      }
-
       setMessage("Admin-Rechte wiederhergestellt. Seite wird aktualisiert...");
-      await Promise.all([loadCurrentUserPermissions(), loadUsers(), loadSecurityOverview(), loadAuditLog(0)]);
+      await Promise.all([
+        refreshCurrentUser ? refreshCurrentUser() : Promise.resolve(null),
+        loadUsers(),
+        loadSecurityOverview(),
+        loadAuditLog(0)
+      ]);
     } catch (restoreError) {
       setError(restoreError?.message || "Admin-Rechte konnten nicht wiederhergestellt werden.");
     }
@@ -572,14 +487,10 @@ export default function AdminSettings() {
     const method = isLocked ? "DELETE" : "POST";
 
     try {
-      const response = await fetch(`${API_BASE}/api/admin/security/locks/${encodeURIComponent(user.id)}`, {
+      await apiRequest(`/api/admin/security/locks/${encodeURIComponent(user.id)}`, {
         method,
-        credentials: "include"
+        fallbackMessage: "Konto konnte nicht aktualisiert werden."
       });
-
-      if (!response.ok) {
-        throw new Error(`Konto konnte nicht aktualisiert werden (${response.status})`);
-      }
 
       setMessage(isLocked
         ? `Konto von ${user.username} entsperrt.`

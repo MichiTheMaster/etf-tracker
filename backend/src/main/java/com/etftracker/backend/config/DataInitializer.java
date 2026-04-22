@@ -6,12 +6,16 @@ import com.etftracker.backend.service.AppSettingService;
 
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
 public class DataInitializer implements CommandLineRunner {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(DataInitializer.class);
 
     private final RoleRepository roleRepository;
     private final AppSettingService appSettingService;
@@ -26,17 +30,17 @@ public class DataInitializer implements CommandLineRunner {
 
         if (roleRepository.findByName("USER").isEmpty()) {
             roleRepository.save(new Role("USER"));
-            System.out.println("✔ Rolle USER angelegt");
+            LOGGER.info("Role USER created");
         }
 
         if (roleRepository.findByName("ADMIN").isEmpty()) {
             roleRepository.save(new Role("ADMIN"));
-            System.out.println("✔ Rolle ADMIN angelegt");
+            LOGGER.info("Role ADMIN created");
         }
 
         if (roleRepository.findByName("READONLY_ADMIN").isEmpty()) {
             roleRepository.save(new Role("READONLY_ADMIN"));
-            System.out.println("✔ Rolle READONLY_ADMIN angelegt");
+            LOGGER.info("Role READONLY_ADMIN created");
         }
 
         seedAppSettings();

@@ -10,7 +10,7 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import GavelIcon from "@mui/icons-material/Gavel";
 import PrivacyTipIcon from "@mui/icons-material/PrivacyTip";
 import DescriptionIcon from "@mui/icons-material/Description";
-import { API_BASE } from "./apiBase";
+import { apiGet, apiPost } from "./apiClient";
 
 const drawerWidth = 240;
 const DEFAULT_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
@@ -18,28 +18,18 @@ const DEFAULT_INACTIVITY_WARNING_MS = 28 * 60 * 1000;
 
 const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
 
-export default function DashboardLayout({ children }) {
+export default function DashboardLayout({ children, currentUser, onLogout }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [canAccessAdmin, setCanAccessAdmin] = useState(() => {
-    try {
-      const raw = localStorage.getItem("sessionRoles");
-      if (!raw) {
-        return false;
-      }
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed)
-        && (parsed.includes("ADMIN") || parsed.includes("READONLY_ADMIN"));
-    } catch {
-      return false;
-    }
-  });
   const [inactiveElapsedMs, setInactiveElapsedMs] = useState(0);
   const [inactivityTimeoutMs, setInactivityTimeoutMs] = useState(DEFAULT_INACTIVITY_TIMEOUT_MS);
   const [inactivityWarningMs, setInactivityWarningMs] = useState(DEFAULT_INACTIVITY_WARNING_MS);
   const logoutTimerRef = useRef(null);
   const tickerRef = useRef(null);
   const lastActivityAtRef = useRef(Date.now());
+
+  const roles = Array.isArray(currentUser?.roles) ? currentUser.roles : [];
+  const canAccessAdmin = roles.includes("ADMIN") || roles.includes("READONLY_ADMIN");
 
   const currentPath = location.pathname;
   const currentPageLabel =
@@ -61,18 +51,14 @@ export default function DashboardLayout({ children }) {
     clearTimeout(logoutTimerRef.current);
     clearInterval(tickerRef.current);
     try {
-      await fetch(`${API_BASE}/auth/logout`, {
-        method: "POST",
-        credentials: "include"
+      await apiPost("/auth/logout", null, {
+        fallbackMessage: "Logout fehlgeschlagen."
       });
     } finally {
-      localStorage.removeItem("sessionAuthenticated");
-      localStorage.removeItem("sessionRoles");
-      localStorage.removeItem("sessionUsername");
-      localStorage.setItem("forceLoggedOut", "1");
+      onLogout?.();
       navigate("/login", { replace: true });
     }
-  }, [navigate]);
+  }, [navigate, onLogout]);
 
   const resetInactivityTimer = useCallback(() => {
     lastActivityAtRef.current = Date.now();
@@ -87,16 +73,9 @@ export default function DashboardLayout({ children }) {
   useEffect(() => {
     const loadInactivitySettings = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/settings/inactivity`, {
-          method: "GET",
-          credentials: "include"
+        const payload = await apiGet("/api/settings/inactivity", {
+          fallbackMessage: "Inaktivitaets-Einstellungen konnten nicht geladen werden."
         });
-
-        if (!response.ok) {
-          return;
-        }
-
-        const payload = await response.json();
         const timeoutMinutes = Number.parseInt(String(payload?.timeoutMinutes ?? ""), 10);
         const warningMinutes = Number.parseInt(String(payload?.warningMinutes ?? ""), 10);
         const hasValidTimeout = !Number.isNaN(timeoutMinutes) && timeoutMinutes >= 5 && timeoutMinutes <= 240;
@@ -137,46 +116,6 @@ export default function DashboardLayout({ children }) {
       );
     };
   }, [resetInactivityTimer]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadUserRoles = async () => {
-      try {
-        const response = await fetch(`${API_BASE}/api/me`, {
-          method: "GET",
-          credentials: "include"
-        });
-
-        if (!response.ok) {
-          if (isMounted) {
-            setCanAccessAdmin(false);
-          }
-          return;
-        }
-
-        const payload = await response.json();
-        const roles = Array.isArray(payload?.roles)
-          ? payload.roles.map((role) => String(role).toUpperCase())
-          : [];
-        localStorage.setItem("sessionRoles", JSON.stringify(roles));
-
-        if (isMounted) {
-          setCanAccessAdmin(roles.includes("ADMIN") || roles.includes("READONLY_ADMIN"));
-        }
-      } catch {
-        if (isMounted) {
-          setCanAccessAdmin(false);
-        }
-      }
-    };
-
-    loadUserRoles();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   const warningActive = inactiveElapsedMs >= inactivityWarningMs;
   const remainingMs = Math.max(inactivityTimeoutMs - inactiveElapsedMs, 0);
