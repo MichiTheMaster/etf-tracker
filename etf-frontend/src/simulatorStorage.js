@@ -22,6 +22,7 @@ export const ETF_CATALOG = [
 ];
 
 export const DEFAULT_ETF_SYMBOLS = ["VWCE", "EUNL", "EMIM", "SXR8", "EXSA", "SPYD"];
+const DEFAULT_ETF_SYMBOL_SET = new Set(ETF_CATALOG.map((etf) => etf.symbol));
 
 function createInitialState() {
   return {
@@ -319,15 +320,25 @@ export function sellEtf(state, symbol, quantity, priceOverride = null) {
   };
 }
 
-export function calculateMetrics(state, livePrices = null) {
+export function calculateMetrics(state, livePrices = null, options = {}) {
+  const allowCatalogFallback = options.allowCatalogFallback ?? true;
+
   const positions = Object.entries(state.holdings).map(([symbol, holding]) => {
     const etf = findEtf(symbol);
-    const currentPrice =
-      livePrices && livePrices[symbol] != null ? livePrices[symbol] : etf ? etf.price : 0;
-    const currentValue = currentPrice * holding.shares;
+    const hasLivePrice = livePrices && livePrices[symbol] != null;
+    const isCustomEtf = Boolean(etf) && !DEFAULT_ETF_SYMBOL_SET.has(symbol);
+
+    let currentPrice = null;
+    if (hasLivePrice) {
+      currentPrice = livePrices[symbol];
+    } else if (etf && (livePrices == null || allowCatalogFallback || isCustomEtf)) {
+      currentPrice = etf.price;
+    }
+
+    const currentValue = currentPrice == null ? 0 : currentPrice * holding.shares;
     const averageCost = holding.shares > 0 ? holding.costTotal / holding.shares : 0;
-    const pnlAbs = currentValue - holding.costTotal;
-    const pnlPct = holding.costTotal > 0 ? (pnlAbs / holding.costTotal) * 100 : 0;
+    const pnlAbs = currentPrice == null ? null : currentValue - holding.costTotal;
+    const pnlPct = currentPrice == null || holding.costTotal <= 0 ? null : (pnlAbs / holding.costTotal) * 100;
 
     return {
       symbol,

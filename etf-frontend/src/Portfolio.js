@@ -162,8 +162,22 @@ export default function Portfolio() {
   const priceMap = quotes
     ? Object.fromEntries(Object.entries(quotes).map(([s, q]) => [s, q.price]))
     : null;
+  const trustedPriceMap = quotes
+    ? Object.fromEntries(
+        Object.entries(quotes)
+          .filter(([symbol, quote]) => {
+            if (customSymbols.has(symbol)) {
+              return true;
+            }
 
-  const metrics = state ? calculateMetrics(state, priceMap) : null;
+            const source = String(quote?.source || "").toLowerCase();
+            return READY_QUOTE_SOURCES.has(source);
+          })
+          .map(([symbol, quote]) => [symbol, quote.price])
+      )
+    : {};
+
+  const metrics = state ? calculateMetrics(state, trustedPriceMap, { allowCatalogFallback: false }) : null;
   const quotesReady = hasValidQuoteCoverage(quotes, Object.keys(state?.holdings || {}), customSymbols);
   const hasHoldings = metrics ? metrics.positions.length > 0 : false;
   const shouldShowLivePortfolioValues = !hasHoldings || quotesReady;
