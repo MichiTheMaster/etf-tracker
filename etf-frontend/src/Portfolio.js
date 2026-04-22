@@ -19,20 +19,27 @@ import {
   calculateMetrics,
   fetchLivePrices,
   formatCurrency,
-  formatPercent
+  formatPercent,
+  loadCustomEtfs
 } from "./simulatorStorage";
 import { PortfolioAPI } from "./portfolioAPI";
 
 const AUTO_REFRESH_SECONDS = 60;
+const READY_QUOTE_SOURCES = new Set(["live", "cached"]);
 
-function hasValidQuoteCoverage(quoteData, symbols) {
-  if (!quoteData || !Array.isArray(symbols) || symbols.length === 0) {
+function hasValidQuoteCoverage(quoteData, symbols, customSymbols) {
+  if (!Array.isArray(symbols) || symbols.length === 0) {
     return false;
   }
 
   return symbols.every((symbol) => {
+    if (customSymbols.has(symbol)) {
+      return true;
+    }
+
     const price = quoteData?.[symbol]?.price;
-    return Number.isFinite(price) && price > 0;
+    const source = String(quoteData?.[symbol]?.source || "").toLowerCase();
+    return Number.isFinite(price) && price > 0 && READY_QUOTE_SOURCES.has(source);
   });
 }
 
@@ -51,6 +58,10 @@ export default function Portfolio() {
   const [feeDepotPct, setFeeDepotPct] = useState("");
   const [feeError, setFeeError] = useState("");
   const [feeSaved, setFeeSaved] = useState(false);
+  const customSymbols = useMemo(
+    () => new Set(loadCustomEtfs().map((etf) => etf.symbol)),
+    []
+  );
 
   // Load portfolio from API on mount
   useEffect(() => {
@@ -101,7 +112,7 @@ export default function Portfolio() {
 
       // Some providers return transient zero/missing prices right after page load.
       // Auto-retry once with force=true to mirror manual refresh behavior.
-      if (!hasValidQuoteCoverage(data, symbolsToRefresh)) {
+      if (!hasValidQuoteCoverage(data, symbolsToRefresh, customSymbols)) {
         const retryData = await fetchLivePrices(true, symbolsToRefresh);
         if (retryData) {
           data = retryData;
@@ -116,7 +127,7 @@ export default function Portfolio() {
       isRefreshingRef.current = false;
       setIsRefreshing(false);
     }
-  }, [state]);
+  }, [state, customSymbols]);
 
   useEffect(() => {
     if (!state) {
@@ -153,7 +164,7 @@ export default function Portfolio() {
     : null;
 
   const metrics = state ? calculateMetrics(state, priceMap) : null;
-  const quotesReady = hasValidQuoteCoverage(quotes, Object.keys(state?.holdings || {}));
+  const quotesReady = hasValidQuoteCoverage(quotes, Object.keys(state?.holdings || {}), customSymbols);
   const hasHoldings = metrics ? metrics.positions.length > 0 : false;
   const shouldShowLivePortfolioValues = !hasHoldings || quotesReady;
 
