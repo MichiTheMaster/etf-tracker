@@ -154,6 +154,8 @@ export default function Portfolio() {
 
   const metrics = state ? calculateMetrics(state, priceMap) : null;
   const quotesReady = hasValidQuoteCoverage(quotes, Object.keys(state?.holdings || {}));
+  const hasHoldings = metrics ? metrics.positions.length > 0 : false;
+  const shouldShowLivePortfolioValues = !hasHoldings || quotesReady;
 
   const handleSort = useCallback((field) => {
     setSortConfig((previous) => {
@@ -292,7 +294,9 @@ export default function Portfolio() {
             <Typography variant="subtitle2" color="text.secondary">
               Gesamtwert
             </Typography>
-            <Typography variant="h5">{formatCurrency(metrics.totalValue)}</Typography>
+            <Typography variant="h5">
+              {shouldShowLivePortfolioValues ? formatCurrency(metrics.totalValue) : "Lädt..."}
+            </Typography>
           </Paper>
         </Grid>
         <Grid item xs={12} md={4}>
@@ -309,7 +313,7 @@ export default function Portfolio() {
               Unrealized P/L
             </Typography>
             <Typography variant="h5" color={metrics.unrealizedPnl >= 0 ? "success.main" : "error.main"}>
-              {quotesReady ? formatCurrency(metrics.unrealizedPnl) : "Lädt..."}
+              {shouldShowLivePortfolioValues ? formatCurrency(metrics.unrealizedPnl) : "Lädt..."}
             </Typography>
           </Paper>
         </Grid>
@@ -425,12 +429,12 @@ export default function Portfolio() {
                   <TableCell>{position.symbol}</TableCell>
                   <TableCell>{position.shares}</TableCell>
                   <TableCell>{formatCurrency(position.averageCost)}</TableCell>
-                  <TableCell>{formatCurrency(position.currentPrice)}</TableCell>
-                  <TableCell>{formatCurrency(position.currentValue)}</TableCell>
+                  <TableCell>{quotesReady ? formatCurrency(position.currentPrice) : "Lädt..."}</TableCell>
+                  <TableCell>{quotesReady ? formatCurrency(position.currentValue) : "Lädt..."}</TableCell>
                   <TableCell
-                    sx={{ color: position.pnlAbs >= 0 ? "success.main" : "error.main" }}
+                    sx={{ color: quotesReady && position.pnlAbs >= 0 ? "success.main" : "error.main" }}
                   >
-                    {formatCurrency(position.pnlAbs)} ({formatPercent(position.pnlPct)})
+                    {quotesReady ? `${formatCurrency(position.pnlAbs)} (${formatPercent(position.pnlPct)})` : "Lädt..."}
                   </TableCell>
                   <TableCell>{formatAddedAt(position.addedAt)}</TableCell>
                   <TableCell>
