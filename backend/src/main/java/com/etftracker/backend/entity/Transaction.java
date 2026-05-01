@@ -18,7 +18,7 @@ public class Transaction {
     @JoinColumn(name = "portfolio_id", nullable = false)
     private Portfolio portfolio;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 32)
     @Enumerated(EnumType.STRING)
     private TransactionType type;
 
