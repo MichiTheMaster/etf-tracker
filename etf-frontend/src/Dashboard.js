@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Box, Grid, Paper, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Paper, Tooltip, Typography } from "@mui/material";
 import { Link } from "react-router-dom";
 import { calculateMetrics, fetchLivePrices, formatCurrency, formatPercent } from "./simulatorStorage";
 import { PortfolioAPI } from "./portfolioAPI";
@@ -156,19 +156,19 @@ export default function Dashboard() {
       to: "/portfolio"
     },
     {
-      title: "Gesamt-Performance",
+      title: "Gesamt P/L",
       value: formatCurrency(metrics.totalPnl),
       detail: `${formatPercent(metrics.returns.totalReturnPct)} seit Start`,
-      tooltip: "Die Gesamt-Performance zeigt den gesamten Gewinn oder Verlust in Euro seit Start. Sie setzt sich aus realisierten Ergebnissen aus Verkaeufen und unrealisierter Wertveraenderung der aktuell gehaltenen Positionen zusammen.",
+      tooltip: "Gesamt P/L zeigt den gesamten Gewinn oder Verlust in Euro seit Start. Die Kennzahl setzt sich aus realisierten Ergebnissen aus Verkaeufen und unrealisierter Wertveraenderung der aktuell gehaltenen Positionen zusammen.",
       color: metrics.totalPnl >= 0 ? "success.main" : "error.main",
       to: "/performance"
     },
     {
-      title: "Rendite p.a.",
-      value: formatPercent(metrics.returns.annualizedReturnPct),
-      detail: "Annualisierte Rendite",
-      tooltip: "Die Rendite p.a. rechnet die bisherige Gesamtentwicklung auf ein Jahr um. So lassen sich Zeitraeume unterschiedlicher Laenge besser vergleichen als mit der reinen Gesamtrendite.",
-      color: metrics.returns.annualizedReturnPct >= 0 ? "success.main" : "error.main",
+      title: "Rendite",
+      value: formatPercent(metrics.returns.totalReturnPct),
+      detail: "Gesamtrendite seit Start",
+      tooltip: "Die Rendite zeigt die bisherige prozentuale Entwicklung des Portfolios seit Start. Sie ist nicht auf Jahresbasis umgerechnet und entspricht damit der direkten Gesamtentwicklung in Prozent.",
+      color: metrics.returns.totalReturnPct >= 0 ? "success.main" : "error.main",
       to: "/performance"
     },
     {

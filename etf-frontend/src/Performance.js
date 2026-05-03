@@ -1,19 +1,36 @@
 import { useEffect, useState } from "react";
 import { Alert, Box, Grid, Paper, Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from "@mui/material";
-import { calculateMetrics, fetchLivePrices, formatCurrency, formatPercent } from "./simulatorStorage";
+import { calculateMetrics, fetchLivePrices, fetchPortfolioBenchmarkSettings, formatCurrency, formatPercent } from "./simulatorStorage";
 import { PortfolioAPI } from "./portfolioAPI";
+
+function calculateBenchmarkReturnPct(annualRatePct, holdingDays) {
+  const normalizedAnnualRatePct = Number(annualRatePct);
+  const normalizedHoldingDays = Math.max(0, Math.floor(Number(holdingDays) || 0));
+
+  if (!Number.isFinite(normalizedAnnualRatePct) || normalizedAnnualRatePct < 0) {
+    return null;
+  }
+
+  const dailyRate = (normalizedAnnualRatePct / 100) / 365;
+  return (Math.pow(1 + dailyRate, normalizedHoldingDays) - 1) * 100;
+}
 
 export default function Performance() {
   const [state, setState] = useState(null);
   const [quotes, setQuotes] = useState(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [benchmarkAnnualRatePct, setBenchmarkAnnualRatePct] = useState(3);
 
   useEffect(() => {
     const loadPortfolio = async () => {
       try {
-        const portfolioState = await PortfolioAPI.load();
+        const [portfolioState, benchmarkSettings] = await Promise.all([
+          PortfolioAPI.load(),
+          fetchPortfolioBenchmarkSettings()
+        ]);
         setState(portfolioState);
+        setBenchmarkAnnualRatePct(Number(benchmarkSettings?.annualRatePct || 3));
 
         const symbols = Object.keys(portfolioState?.holdings || {});
         const quoteData = await fetchLivePrices(true, symbols);
@@ -51,6 +68,10 @@ export default function Performance() {
     : null;
 
   const metrics = calculateMetrics(state, priceMap);
+  const benchmarkReturnPct = calculateBenchmarkReturnPct(benchmarkAnnualRatePct, metrics.returns.daysActive);
+  const outperformancePct = metrics.returns.totalReturnPct == null || benchmarkReturnPct == null
+    ? null
+    : metrics.returns.totalReturnPct - benchmarkReturnPct;
   const hasCashDeficit = Number(metrics.cash || 0) < 0;
   const cashDeficitAmount = hasCashDeficit ? Math.abs(Number(metrics.cash || 0)) : 0;
   const cashCardTitle = hasCashDeficit ? "Unterdeckung" : "Cash";
@@ -75,16 +96,16 @@ export default function Performance() {
       tooltip: "Addiert realisierte und unrealisierte Ergebnisse. Damit siehst du den gesamten bisherigen Erfolg oder Misserfolg des Portfolios ohne getrennte Betrachtung einzelner Positionen."
     },
     {
-      title: "Rendite gesamt",
-      value: formatPercent(metrics.returns.totalReturnPct),
-      color: metrics.returns.totalReturnPct >= 0 ? "success.main" : "error.main",
-      tooltip: "Die Gesamtrendite vergleicht den aktuellen Gesamtwert des Portfolios mit dem rechnerischen Startkapital. Sie zeigt die Entwicklung seit Beginn in Prozent, aber nicht pro Jahr normiert."
+      title: "Performance",
+      value: formatPercent(outperformancePct),
+      color: outperformancePct >= 0 ? "success.main" : "error.main",
+      tooltip: "Die Performance vergleicht die bisherige Portfolio-Rendite mit dem konfigurierten Benchmark fuer denselben Zeitraum. Positive Werte bedeuten, dass dein Portfolio besser als der Benchmark gelaufen ist."
     },
     {
-      title: "Rendite p.a.",
-      value: formatPercent(metrics.returns.annualizedReturnPct),
-      color: metrics.returns.annualizedReturnPct >= 0 ? "success.main" : "error.main",
-      tooltip: "Die annualisierte Rendite rechnet die bisherige Entwicklung auf eine Jahresbasis um. Damit lassen sich Zeitraeume unterschiedlicher Laenge besser vergleichen."
+      title: "Rendite",
+      value: formatPercent(metrics.returns.totalReturnPct),
+      color: metrics.returns.totalReturnPct >= 0 ? "success.main" : "error.main",
+      tooltip: "Die Rendite zeigt die bisherige prozentuale Entwicklung des Portfolios seit Start. Sie ist nicht annualisiert und entspricht damit der direkt sichtbaren ETF-Rendite fuer den bisherigen Zeitraum."
     },
     {
       title: "Money Weighted (XIRR)",
@@ -110,7 +131,7 @@ export default function Performance() {
       title: "Laufzeit",
       value: Number.isFinite(metrics.returns.daysActive) ? `${Math.max(1, Math.round(metrics.returns.daysActive))} Tage` : "-",
       color: "text.primary",
-      tooltip: "Zeigt, wie lange das Portfolio bereits aktiv ist. Die Laufzeit dient als Grundlage fuer annualisierte Kennzahlen wie die Rendite p.a. oder die XIRR-Betrachtung."
+      tooltip: "Zeigt, wie lange das Portfolio bereits aktiv ist. Die Laufzeit dient als Grundlage fuer Zeitvergleiche wie Benchmark und XIRR-Betrachtung."
     }
   ];
 

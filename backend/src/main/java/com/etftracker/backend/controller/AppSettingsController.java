@@ -13,6 +13,7 @@ public class AppSettingsController {
 
     private static final String INACTIVITY_TIMEOUT_KEY = "app.session.inactivityTimeoutMinutes";
     private static final String INACTIVITY_WARNING_KEY = "app.session.inactivityWarningMinutes";
+    private static final String PORTFOLIO_BENCHMARK_RATE_KEY = "app.portfolio.benchmarkAnnualRatePct";
 
     private final AppSettingService appSettingService;
 
@@ -31,7 +32,12 @@ public class AppSettingsController {
 
         return Map.of(
                 "timeoutMinutes", timeoutMinutes,
-                "warningMinutes", warningMinutes
-        );
+                "warningMinutes", warningMinutes);
+    }
+
+    @GetMapping("/portfolio-benchmark")
+    public Map<String, Double> getPortfolioBenchmarkSettings() {
+        double annualRatePct = appSettingService.getDouble(PORTFOLIO_BENCHMARK_RATE_KEY, 3.0, 0.0, 20.0);
+        return Map.of("annualRatePct", annualRatePct);
     }
 }

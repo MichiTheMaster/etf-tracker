@@ -469,6 +469,75 @@ export async function fetchLivePrices(forceRefresh = false, symbols = null) {
   }
 }
 
+export async function fetchRiskMetrics(symbols = null) {
+  const requestRiskBatch = async (batchSymbols) => {
+    const params = new URLSearchParams();
+    if (Array.isArray(batchSymbols) && batchSymbols.length > 0) {
+      params.set("symbols", batchSymbols.join(","));
+    }
+
+    const query = params.toString();
+    return apiGet(query ? `/api/market/risk?${query}` : "/api/market/risk", {
+      fallbackMessage: "Risiko-Kennzahlen konnten nicht geladen werden."
+    });
+  };
+
+  try {
+    if (!Array.isArray(symbols) || symbols.length === 0) {
+      const data = await requestRiskBatch();
+      return { data: data || {}, statusBySymbol: {} };
+    }
+
+    const uniqueSymbols = [...new Set(symbols.filter((symbol) => typeof symbol === "string" && symbol.trim()))];
+    const mergedRiskMetrics = {};
+    const statusBySymbol = {};
+
+    for (let index = 0; index < uniqueSymbols.length; index += 4) {
+      const batchSymbols = uniqueSymbols.slice(index, index + 4);
+
+      try {
+        const batchData = await requestRiskBatch(batchSymbols);
+        Object.assign(mergedRiskMetrics, batchData || {});
+
+        for (const symbol of batchSymbols) {
+          statusBySymbol[symbol] = batchData?.[symbol] ? "ready" : "unavailable";
+        }
+      } catch (_batchError) {
+        for (const symbol of batchSymbols) {
+          try {
+            const singleData = await requestRiskBatch([symbol]);
+            Object.assign(mergedRiskMetrics, singleData || {});
+            statusBySymbol[symbol] = singleData?.[symbol] ? "ready" : "unavailable";
+          } catch (_singleError) {
+            statusBySymbol[symbol] = "error";
+          }
+        }
+      }
+    }
+
+    return { data: mergedRiskMetrics, statusBySymbol };
+  } catch (_error) {
+    return { data: {}, statusBySymbol: {} };
+  }
+}
+
+export async function fetchPortfolioBenchmarkSettings() {
+  try {
+    const data = await apiGet("/api/settings/portfolio-benchmark", {
+      fallbackMessage: "Benchmark-Einstellungen konnten nicht geladen werden."
+    });
+
+    const annualRatePct = Number(data?.annualRatePct);
+    if (!Number.isFinite(annualRatePct)) {
+      return { annualRatePct: 3 };
+    }
+
+    return { annualRatePct };
+  } catch (_error) {
+    return { annualRatePct: 3 };
+  }
+}
+
 function requireValidQuantity(quantity) {
   if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isInteger(quantity)) {
     throw new Error("Bitte eine gueltige ganze Anzahl eingeben.");

@@ -17,6 +17,7 @@ import {
 } from "@mui/material";
 import {
   calculateMetrics,
+  fetchPortfolioBenchmarkSettings,
   fetchLivePrices,
   formatCurrency,
   formatPercent,
@@ -26,6 +27,18 @@ import { PortfolioAPI } from "./portfolioAPI";
 
 const AUTO_REFRESH_SECONDS = 60;
 const READY_QUOTE_SOURCES = new Set(["live", "cached"]);
+
+function calculateBenchmarkReturnPct(annualRatePct, holdingDays) {
+  const normalizedAnnualRatePct = Number(annualRatePct);
+  const normalizedHoldingDays = Math.max(0, Math.floor(Number(holdingDays) || 0));
+
+  if (!Number.isFinite(normalizedAnnualRatePct) || normalizedAnnualRatePct < 0) {
+    return null;
+  }
+
+  const dailyRate = (normalizedAnnualRatePct / 100) / 365;
+  return (Math.pow(1 + dailyRate, normalizedHoldingDays) - 1) * 100;
+}
 
 function hasValidQuoteCoverage(quoteData, symbols, customSymbols) {
   if (!Array.isArray(symbols) || symbols.length === 0) {
@@ -51,6 +64,7 @@ export default function Portfolio() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [countdown, setCountdown] = useState(AUTO_REFRESH_SECONDS);
   const [isLoading, setIsLoading] = useState(true);
+  const [benchmarkAnnualRatePct, setBenchmarkAnnualRatePct] = useState(3);
   const [sortConfig, setSortConfig] = useState({ field: "symbol", direction: "asc" });
   const isRefreshingRef = useRef(false);
 
@@ -67,8 +81,12 @@ export default function Portfolio() {
   useEffect(() => {
     const loadPortfolio = async () => {
       try {
-        const portfolioState = await PortfolioAPI.load();
+        const [portfolioState, benchmarkSettings] = await Promise.all([
+          PortfolioAPI.load(),
+          fetchPortfolioBenchmarkSettings()
+        ]);
         setState(portfolioState);
+        setBenchmarkAnnualRatePct(Number(benchmarkSettings?.annualRatePct || 3));
         setFeeTransactionPct(
           portfolioState.transactionFeeRate == null
             ? "0"
@@ -196,7 +214,14 @@ export default function Portfolio() {
   const sortedPositions = useMemo(() => {
     if (!metrics || !metrics.positions) return [];
     const directionFactor = sortConfig.direction === "asc" ? 1 : -1;
-    const normalized = [...metrics.positions];
+    const normalized = metrics.positions.map((position) => ({
+      ...position,
+      benchmarkReturnPct: calculateBenchmarkReturnPct(benchmarkAnnualRatePct, position.holdingDays),
+      outperformancePct:
+        position.pnlPct == null
+          ? null
+          : position.pnlPct - calculateBenchmarkReturnPct(benchmarkAnnualRatePct, position.holdingDays)
+    }));
 
     normalized.sort((a, b) => {
       let aValue, bValue;
@@ -225,9 +250,13 @@ export default function Portfolio() {
         aValue = Number(a.pnlAbs || 0);
         bValue = Number(b.pnlAbs || 0);
         return (aValue - bValue) * directionFactor;
-      } else if (sortConfig.field === "annualizedReturn") {
-        aValue = Number(a.annualizedReturnPct || 0);
-        bValue = Number(b.annualizedReturnPct || 0);
+      } else if (sortConfig.field === "benchmarkReturn") {
+        aValue = Number(a.benchmarkReturnPct || 0);
+        bValue = Number(b.benchmarkReturnPct || 0);
+        return (aValue - bValue) * directionFactor;
+      } else if (sortConfig.field === "outperformance") {
+        aValue = Number(a.outperformancePct || 0);
+        bValue = Number(b.outperformancePct || 0);
         return (aValue - bValue) * directionFactor;
       }
 
@@ -235,7 +264,7 @@ export default function Portfolio() {
     });
 
     return normalized;
-  }, [metrics, sortConfig]);
+  }, [benchmarkAnnualRatePct, metrics, sortConfig]);
 
   const handleSell = async (symbol) => {
     const quantity = Number(sellQuantities[symbol] || 0);
@@ -338,10 +367,10 @@ export default function Portfolio() {
       color: metrics.unrealizedPnl >= 0 ? "success.main" : "error.main"
     },
     {
-      title: "Rendite p.a.",
-      value: formatPercent(metrics.returns.annualizedReturnPct),
-      tooltip: "Die Rendite p.a. annualisiert die bisherige Portfolioentwicklung. Dadurch kannst du die Performance auch bei kurzen oder unterschiedlich langen Anlagezeiträumen besser vergleichen.",
-      color: metrics.returns.annualizedReturnPct >= 0 ? "success.main" : "error.main"
+      title: "Rendite",
+      value: formatPercent(metrics.returns.totalReturnPct),
+      tooltip: "Die Rendite zeigt die bisherige prozentuale Entwicklung des Portfolios seit Start. Sie ist nicht annualisiert und entspricht damit der direkten Gesamtentwicklung in Prozent.",
+      color: metrics.returns.totalReturnPct >= 0 ? "success.main" : "error.main"
     },
     {
       title: "Unterdeckung",
@@ -490,14 +519,25 @@ export default function Portfolio() {
                     </TableSortLabel>
                   </Tooltip>
                 </TableCell>
-                <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "annualizedReturn" ? sortConfig.direction : false}>
-                  <Tooltip title="Zum Sortieren klicken (auf/absteigend)">
+                <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "benchmarkReturn" ? sortConfig.direction : false}>
+                  <Tooltip title={`Benchmark-Wert nach Formel (1 + ${(benchmarkAnnualRatePct / 100).toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 4 })}/365)^Tage - 1. Zum Sortieren klicken.`}>
                     <TableSortLabel
-                      active={sortConfig.field === "annualizedReturn"}
-                      direction={sortConfig.field === "annualizedReturn" ? sortConfig.direction : "asc"}
-                      onClick={() => handleSort("annualizedReturn")}
+                      active={sortConfig.field === "benchmarkReturn"}
+                      direction={sortConfig.field === "benchmarkReturn" ? sortConfig.direction : "asc"}
+                      onClick={() => handleSort("benchmarkReturn")}
                     >
-                      Rendite p.a.
+                      Benchmark
+                    </TableSortLabel>
+                  </Tooltip>
+                </TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "outperformance" ? sortConfig.direction : false}>
+                  <Tooltip title="Performance = aktuelle ETF-Rendite in % minus Benchmark. Positive Werte bedeuten, dass die Position im bisherigen Haltedauer-Zeitraum besser als der Benchmark gelaufen ist.">
+                    <TableSortLabel
+                      active={sortConfig.field === "outperformance"}
+                      direction={sortConfig.field === "outperformance" ? sortConfig.direction : "asc"}
+                      onClick={() => handleSort("outperformance")}
+                    >
+                      Performance
                     </TableSortLabel>
                   </Tooltip>
                 </TableCell>
@@ -518,10 +558,20 @@ export default function Portfolio() {
                   >
                     {quotesReady ? `${formatCurrency(position.pnlAbs)} (${formatPercent(position.pnlPct)})` : "Lädt..."}
                   </TableCell>
+                  <TableCell sx={{ color: "info.main" }}>
+                    {formatPercent(position.benchmarkReturnPct)}
+                  </TableCell>
                   <TableCell
-                    sx={{ color: position.annualizedReturnPct >= 0 ? "success.main" : "error.main" }}
+                    sx={{
+                      color:
+                        position.outperformancePct == null
+                          ? "text.secondary"
+                          : position.outperformancePct >= 0
+                          ? "success.main"
+                          : "error.main"
+                    }}
                   >
-                    {quotesReady ? formatPercent(position.annualizedReturnPct) : "Lädt..."}
+                    {formatPercent(position.outperformancePct)}
                   </TableCell>
                   <TableCell>{formatAddedAt(position.addedAt)}</TableCell>
                   <TableCell>

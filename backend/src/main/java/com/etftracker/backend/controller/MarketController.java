@@ -1,6 +1,7 @@
 package com.etftracker.backend.controller;
 
 import com.etftracker.backend.dto.EtfPoolItemResponse;
+import com.etftracker.backend.dto.MarketRiskResponse;
 import com.etftracker.backend.dto.QuoteResponse;
 import com.etftracker.backend.service.MarketDataService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,6 +32,13 @@ public class MarketController {
         return marketDataService.getQuotes(symbolList, force, debug);
     }
 
+    @GetMapping("/risk")
+    public Map<String, MarketRiskResponse> getRisk(
+            @RequestParam(defaultValue = "VWCE,EUNL,EMIM,SXR8,EXSA,SPYD") String symbols) {
+        List<String> symbolList = Arrays.asList(symbols.split(","));
+        return marketDataService.getRiskMetrics(symbolList);
+    }
+
     @GetMapping("/debug")
     public Map<String, Object> debug(@RequestParam String symbol) {
         return marketDataService.getRawResponse(symbol);
@@ -40,7 +48,7 @@ public class MarketController {
     public List<EtfPoolItemResponse> pool(
             @RequestParam(defaultValue = "iShares") String q,
             @RequestParam(defaultValue = "15") int limit) {
-        int sanitizedLimit = Math.max(1, Math.min(limit, 50));
+        int sanitizedLimit = Math.clamp(limit, 1, 50);
         return marketDataService.searchEtfs(q, sanitizedLimit);
     }
 }

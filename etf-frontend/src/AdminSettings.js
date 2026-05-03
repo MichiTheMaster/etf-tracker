@@ -22,6 +22,7 @@ const INACTIVITY_TIMEOUT_KEY = "app.session.inactivityTimeoutMinutes";
 const INACTIVITY_WARNING_KEY = "app.session.inactivityWarningMinutes";
 const MAX_FAILED_ATTEMPTS_KEY = "app.security.maxFailedLoginAttempts";
 const LOCK_DURATION_MINUTES_KEY = "app.security.lockDurationMinutes";
+const PORTFOLIO_BENCHMARK_RATE_KEY = "app.portfolio.benchmarkAnnualRatePct";
 
 export default function AdminSettings({ currentUser, refreshCurrentUser }) {
   const [settings, setSettings] = useState([]);
@@ -47,6 +48,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
   const [inactivityWarningMinutes, setInactivityWarningMinutes] = useState("28");
   const [maxFailedAttempts, setMaxFailedAttempts] = useState("5");
   const [lockDurationMinutes, setLockDurationMinutes] = useState("30");
+  const [portfolioBenchmarkRatePct, setPortfolioBenchmarkRatePct] = useState("3.0");
   const [aliasBase, setAliasBase] = useState("");
   const [aliasTarget, setAliasTarget] = useState("");
   const roles = Array.isArray(currentUser?.roles) ? currentUser.roles : [];
@@ -87,6 +89,11 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
       const lockDurationEntry = list.find((entry) => entry.key === LOCK_DURATION_MINUTES_KEY);
       if (lockDurationEntry?.value) {
         setLockDurationMinutes(lockDurationEntry.value);
+      }
+
+      const portfolioBenchmarkRateEntry = list.find((entry) => entry.key === PORTFOLIO_BENCHMARK_RATE_KEY);
+      if (portfolioBenchmarkRateEntry?.value) {
+        setPortfolioBenchmarkRatePct(portfolioBenchmarkRateEntry.value);
       }
     } catch (loadError) {
       setError(loadError?.message || "Settings konnten nicht geladen werden.");
@@ -334,6 +341,27 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
       await loadSettingsHistory();
     } catch (saveError) {
       setError(saveError?.message || "Sicherheits-Schwellwerte konnten nicht gespeichert werden.");
+    }
+  };
+
+  const savePortfolioBenchmarkRate = async () => {
+    setError("");
+    setMessage("");
+
+    const annualRatePct = Number.parseFloat(portfolioBenchmarkRatePct);
+
+    if (Number.isNaN(annualRatePct) || annualRatePct < 0 || annualRatePct > 20) {
+      setError("Benchmark-Zinssatz muss zwischen 0 und 20 % p.a. liegen.");
+      return;
+    }
+
+    try {
+      await upsertSetting(PORTFOLIO_BENCHMARK_RATE_KEY, String(annualRatePct));
+      setMessage("Benchmark-Zinssatz gespeichert.");
+      await loadSettings();
+      await loadSettingsHistory();
+    } catch (saveError) {
+      setError(saveError?.message || "Benchmark-Zinssatz konnte nicht gespeichert werden.");
     }
   };
 
@@ -592,6 +620,28 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
             disabled={!canWriteAdmin}
           />
           <Button variant="contained" onClick={saveSecurityThresholds} disabled={!canWriteAdmin}>
+            Speichern
+          </Button>
+        </Stack>
+      </Paper>
+
+      <Paper sx={{ p: 3 }}>
+        <Typography variant="h6" sx={{ mb: 2 }}>
+          Portfolio-Benchmark
+        </Typography>
+        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+          <TextField
+            label="Benchmark-Zinssatz p.a. (%)"
+            size="small"
+            type="number"
+            slotProps={{ htmlInput: { min: 0, max: 20, step: 0.01 } }}
+            value={portfolioBenchmarkRatePct}
+            onChange={(event) => setPortfolioBenchmarkRatePct(event.target.value)}
+            sx={{ width: 240 }}
+            helperText="Formel im Portfolio: (1 + r/365)^Tage - 1"
+            disabled={!canWriteAdmin}
+          />
+          <Button variant="contained" onClick={savePortfolioBenchmarkRate} disabled={!canWriteAdmin}>
             Speichern
           </Button>
         </Stack>

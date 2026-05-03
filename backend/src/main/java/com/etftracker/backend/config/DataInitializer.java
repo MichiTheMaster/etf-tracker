@@ -51,6 +51,7 @@ public class DataInitializer implements CommandLineRunner {
         appSettingService.upsertIfAbsent("app.session.inactivityWarningMinutes", "28");
         appSettingService.upsertIfAbsent("app.security.maxFailedLoginAttempts", "5");
         appSettingService.upsertIfAbsent("app.security.lockDurationMinutes", "30");
+        appSettingService.upsertIfAbsent("app.portfolio.benchmarkAnnualRatePct", "3.0");
         appSettingService.upsertIfAbsent("market.fallbackPricesEnabled", "true");
 
         cleanupLegacySxrsAlias();

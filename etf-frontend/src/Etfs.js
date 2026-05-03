@@ -29,6 +29,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import {
   DEFAULT_ETF_SYMBOLS,
   ETF_CATALOG,
+  fetchRiskMetrics,
   fetchLivePrices,
   formatCurrency,
   searchEtfPool
@@ -59,6 +60,8 @@ export default function Etfs() {
   const [quantities, setQuantities] = useState({});
   const [error, setError] = useState("");
   const [quotes, setQuotes] = useState(null);
+  const [riskMetrics, setRiskMetrics] = useState({});
+  const [riskStatuses, setRiskStatuses] = useState({});
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [countdown, setCountdown] = useState(AUTO_REFRESH_SECONDS);
   const [isLoading, setIsLoading] = useState(true);
@@ -246,10 +249,15 @@ export default function Etfs() {
     setIsRefreshing(true);
     try {
       const symbols = visibleEtfs.map((etf) => etf.symbol);
-      const data = await fetchLivePrices(forceRefresh, symbols);
-      if (data) {
-        setQuotes(data);
+      const [quoteData, riskResult] = await Promise.all([
+        fetchLivePrices(forceRefresh, symbols),
+        fetchRiskMetrics(symbols)
+      ]);
+      if (quoteData) {
+        setQuotes(quoteData);
       }
+      setRiskMetrics(riskResult?.data || {});
+      setRiskStatuses(riskResult?.statusBySymbol || {});
       setCountdown(AUTO_REFRESH_SECONDS);
     } finally {
       isRefreshingRef.current = false;
@@ -417,6 +425,16 @@ export default function Etfs() {
   if (!state) {
     return <Paper sx={{ p: 3 }}><Typography color="error">Portfolio konnte nicht geladen werden.</Typography></Paper>;
   }
+
+  const getRiskTone = (riskLevel) => {
+    if (riskLevel === "konservativ") {
+      return { barColor: "#2e7d32", trackColor: "rgba(46, 125, 50, 0.16)", textColor: "success.main" };
+    }
+    if (riskLevel === "moderat") {
+      return { barColor: "#ed6c02", trackColor: "rgba(237, 108, 2, 0.16)", textColor: "warning.main" };
+    }
+    return { barColor: "#d32f2f", trackColor: "rgba(211, 47, 47, 0.16)", textColor: "error.main" };
+  };
 
   return (
     <Paper sx={{ p: 3 }}>
@@ -596,6 +614,11 @@ export default function Etfs() {
                 <span>TER</span>
               </Tooltip>
             </TableCell>
+            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333", minWidth: 210 }}>
+              <Tooltip title="Kompakter Risiko- und Volatilitaets-Tracker auf Basis der letzten 90 verfuegbaren Handelstage. Er kombiniert annualisierte Volatilitaet und aktuellen Drawdown zu einem Score von 0 bis 100.">
+                <span>Volatilitaets-Tracker</span>
+              </Tooltip>
+            </TableCell>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>Anzahl</TableCell>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>Summe</TableCell>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>Hinzugefuegt</TableCell>
@@ -616,8 +639,12 @@ export default function Etfs() {
             const isin = ETF_ISIN_BY_SYMBOL[etf.symbol] || "-";
             const price = quotePrice > 0 ? quotePrice : etf.price;
             const terValue = quoteTer > 0 ? quoteTer : etf.ter;
+            const riskEntry = riskMetrics?.[etf.symbol] || null;
+            const riskStatus = riskStatuses?.[etf.symbol] || null;
             const rowTotal = Number.isFinite(quantity) && quantity > 0 ? quantity * price : 0;
             const buyDisabled = !Number.isInteger(quantity) || quantity <= 0 || rowTotal > state.cash;
+            const riskTone = getRiskTone(riskEntry?.riskLevel);
+            const riskScore = Math.max(0, Math.min(100, Number(riskEntry?.riskScore || 0)));
 
             return (
               <TableRow
@@ -675,6 +702,46 @@ export default function Etfs() {
                   </Tooltip>
                 </TableCell>
                 <TableCell>{terValue > 0 ? `${terValue}%` : "-"}</TableCell>
+                <TableCell>
+                  {riskEntry ? (
+                    <Tooltip
+                      title={`${riskEntry.riskLevel} | Volatilitaet ${riskEntry.volatilityPct}% | Drawdown ${riskEntry.drawdownPct}% | ${riskEntry.sampleDays} Handelstage`}
+                    >
+                      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, minWidth: 180 }}>
+                        <Box
+                          sx={{
+                            height: 8,
+                            borderRadius: 999,
+                            backgroundColor: riskTone.trackColor,
+                            overflow: "hidden"
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              width: `${riskScore}%`,
+                              height: "100%",
+                              backgroundColor: riskTone.barColor
+                            }}
+                          />
+                        </Box>
+                        <Typography variant="caption" color={riskTone.textColor} sx={{ fontWeight: 700 }}>
+                          {riskEntry.riskLevel} ({riskScore}/100)
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Vola {riskEntry.volatilityPct}% | DD {riskEntry.drawdownPct}%
+                        </Typography>
+                      </Box>
+                    </Tooltip>
+                  ) : (
+                    <Typography variant="caption" color={riskStatus === "error" ? "error.main" : "text.secondary"}>
+                      {riskStatus === "error"
+                        ? "Providerfehler"
+                        : riskStatus === "unavailable"
+                        ? "Keine Historie"
+                        : "Lädt..."}
+                    </Typography>
+                  )}
+                </TableCell>
                 <TableCell>
                   <TextField
                     size="small"

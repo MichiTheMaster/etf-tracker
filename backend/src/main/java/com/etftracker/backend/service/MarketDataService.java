@@ -1,6 +1,7 @@
 package com.etftracker.backend.service;
 
 import com.etftracker.backend.dto.EtfPoolItemResponse;
+import com.etftracker.backend.dto.MarketRiskResponse;
 import com.etftracker.backend.dto.QuoteResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,6 +10,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -22,11 +24,14 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Service
 public class MarketDataService {
+
+    private static final int RISK_LOOKBACK_DAYS = 90;
 
     private static final Logger log = LoggerFactory.getLogger(MarketDataService.class);
 
@@ -44,6 +49,10 @@ public class MarketDataService {
     }
 
     private record TerLookup(Double ter, String source) {
+    }
+
+    private record RiskComputation(double volatilityPct, double drawdownPct, int riskScore, String riskLevel,
+            int sampleDays) {
     }
 
     private final Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
@@ -165,6 +174,19 @@ public class MarketDataService {
         }
 
         return result;
+    }
+
+    public Map<String, MarketRiskResponse> getRiskMetrics(List<String> symbols) {
+        return symbols.stream()
+                .map(String::trim)
+                .filter(symbol -> !symbol.isBlank())
+                .map(symbol -> Map.entry(symbol, fetchRiskMetric(symbol)))
+                .filter(entry -> entry.getValue() != null)
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        Map.Entry::getValue,
+                        (left, right) -> left,
+                        LinkedHashMap::new));
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
@@ -405,6 +427,162 @@ public class MarketDataService {
         }
 
         return null;
+    }
+
+    private MarketRiskResponse fetchRiskMetric(String symbol) {
+        if (symbol == null || symbol.isBlank()) {
+            return null;
+        }
+
+        for (String candidate : buildYahooCandidates(symbol)) {
+            RiskComputation computation = fetchRiskFromYahooCandidate(candidate);
+            if (computation != null) {
+                return new MarketRiskResponse(
+                        symbol.trim().toUpperCase(Locale.ROOT),
+                        computation.volatilityPct(),
+                        computation.drawdownPct(),
+                        computation.riskScore(),
+                        computation.riskLevel(),
+                        computation.sampleDays());
+            }
+        }
+
+        return null;
+    }
+
+    private RiskComputation fetchRiskFromYahooCandidate(String symbol) {
+        try {
+            String encoded = URLEncoder.encode(symbol, StandardCharsets.UTF_8);
+            String url = "https://query1.finance.yahoo.com/v8/finance/chart/" + encoded + "?interval=1d&range=6mo";
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36");
+            headers.set("Accept", "application/json");
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    entity,
+                    new ParameterizedTypeReference<>() {
+                    });
+            Map<String, Object> body = response.getBody();
+            if (body == null || !(body.get("chart") instanceof Map<?, ?> chart)) {
+                return null;
+            }
+
+            Object resultObj = chart.get("result");
+            if (!(resultObj instanceof List<?> results) || results.isEmpty()) {
+                return null;
+            }
+
+            Object first = results.get(0);
+            if (!(first instanceof Map<?, ?> resultMap)) {
+                return null;
+            }
+
+            Object indicatorsObj = resultMap.get("indicators");
+            if (!(indicatorsObj instanceof Map<?, ?> indicators)) {
+                return null;
+            }
+
+            Object quoteObj = indicators.get("quote");
+            if (!(quoteObj instanceof List<?> quotes) || quotes.isEmpty()) {
+                return null;
+            }
+
+            Object firstQuote = quotes.get(0);
+            if (!(firstQuote instanceof Map<?, ?> quoteMap)) {
+                return null;
+            }
+
+            Object closeObj = quoteMap.get("close");
+            if (!(closeObj instanceof List<?> closesRaw)) {
+                return null;
+            }
+
+            List<Double> closes = closesRaw.stream()
+                    .filter(Objects::nonNull)
+                    .map(value -> {
+                        try {
+                            return Double.parseDouble(value.toString());
+                        } catch (NumberFormatException ignored) {
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .filter(value -> value > 0)
+                    .toList();
+
+            if (closes.size() > RISK_LOOKBACK_DAYS) {
+                closes = closes.subList(closes.size() - RISK_LOOKBACK_DAYS, closes.size());
+            }
+
+            return computeRiskMetrics(closes);
+        } catch (Exception e) {
+            log.debug("Yahoo risk lookup failed for {}: {}", symbol, e.getMessage());
+            return null;
+        }
+    }
+
+    private RiskComputation computeRiskMetrics(List<Double> closes) {
+        if (closes == null || closes.size() < 30) {
+            return null;
+        }
+
+        List<Double> dailyReturns = new ArrayList<>();
+        double rollingPeak = closes.get(0);
+        double currentDrawdownPct = 0;
+
+        for (int index = 1; index < closes.size(); index += 1) {
+            double previous = closes.get(index - 1);
+            double current = closes.get(index);
+            if (previous > 0 && current > 0) {
+                dailyReturns.add((current / previous) - 1);
+            }
+
+            rollingPeak = Math.max(rollingPeak, current);
+            if (rollingPeak > 0) {
+                currentDrawdownPct = Math.max(0, ((rollingPeak - current) / rollingPeak) * 100);
+            }
+        }
+
+        if (dailyReturns.size() < 20) {
+            return null;
+        }
+
+        double mean = dailyReturns.stream().mapToDouble(Double::doubleValue).average().orElse(0);
+        double variance = dailyReturns.stream()
+                .mapToDouble(value -> Math.pow(value - mean, 2))
+                .average()
+                .orElse(0);
+        double volatilityPct = Math.sqrt(Math.max(variance, 0)) * Math.sqrt(252) * 100;
+
+        int volatilityScore = (int) Math.round(Math.min(100, (volatilityPct / 40.0) * 100));
+        int drawdownScore = (int) Math.round(Math.min(100, (currentDrawdownPct / 30.0) * 100));
+        int riskScore = (int) Math.round((volatilityScore * 0.7) + (drawdownScore * 0.3));
+
+        String riskLevel;
+        if (riskScore < 30) {
+            riskLevel = "konservativ";
+        } else if (riskScore < 60) {
+            riskLevel = "moderat";
+        } else {
+            riskLevel = "spekulativ";
+        }
+
+        return new RiskComputation(
+                roundTo(volatilityPct, 1),
+                roundTo(currentDrawdownPct, 1),
+                riskScore,
+                riskLevel,
+                closes.size());
+    }
+
+    private double roundTo(double value, int decimals) {
+        double factor = Math.pow(10, decimals);
+        return Math.round(value * factor) / factor;
     }
 
     private YahooResult fetchFromYahooCandidate(String symbol) {
