@@ -5,6 +5,10 @@ credentials.json
 # Laufzeit-/Prozessdateien
 .dev-processes.json
 *.log
+*.txt
+
+.env
+openwebui.http
 
 # Backend Build-Artefakte
 backend/target/

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Alert, Box, Grid, Paper, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
-import { calculateMetrics, fetchLivePrices, formatCurrency } from "./simulatorStorage";
+import { Alert, Box, Grid, Paper, Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from "@mui/material";
+import { calculateMetrics, fetchLivePrices, formatCurrency, formatPercent } from "./simulatorStorage";
 import { PortfolioAPI } from "./portfolioAPI";
 
 export default function Performance() {
@@ -51,50 +51,92 @@ export default function Performance() {
     : null;
 
   const metrics = calculateMetrics(state, priceMap);
+  const hasCashDeficit = Number(metrics.cash || 0) < 0;
+  const cashDeficitAmount = hasCashDeficit ? Math.abs(Number(metrics.cash || 0)) : 0;
+  const cashCardTitle = hasCashDeficit ? "Unterdeckung" : "Cash";
+  const cashCardValue = hasCashDeficit ? cashDeficitAmount : metrics.cash;
+  const metricCards = [
+    {
+      title: "Realized P/L",
+      value: formatCurrency(metrics.realizedPnl),
+      color: metrics.realizedPnl >= 0 ? "success.main" : "error.main",
+      tooltip: "Zeigt den bereits realisierten Gewinn oder Verlust aus abgeschlossenen Verkaeufen. Dieser Wert entsteht erst dann, wenn eine Position ganz oder teilweise verkauft wurde."
+    },
+    {
+      title: "Unrealized P/L",
+      value: formatCurrency(metrics.unrealizedPnl),
+      color: metrics.unrealizedPnl >= 0 ? "success.main" : "error.main",
+      tooltip: "Zeigt den aktuellen Buchgewinn oder Buchverlust deiner noch gehaltenen Positionen. Grundlage ist der Vergleich zwischen aktuellem Marktwert und historischem Einstandswert."
+    },
+    {
+      title: "Gesamt P/L",
+      value: formatCurrency(metrics.totalPnl),
+      color: metrics.totalPnl >= 0 ? "success.main" : "error.main",
+      tooltip: "Addiert realisierte und unrealisierte Ergebnisse. Damit siehst du den gesamten bisherigen Erfolg oder Misserfolg des Portfolios ohne getrennte Betrachtung einzelner Positionen."
+    },
+    {
+      title: "Rendite gesamt",
+      value: formatPercent(metrics.returns.totalReturnPct),
+      color: metrics.returns.totalReturnPct >= 0 ? "success.main" : "error.main",
+      tooltip: "Die Gesamtrendite vergleicht den aktuellen Gesamtwert des Portfolios mit dem rechnerischen Startkapital. Sie zeigt die Entwicklung seit Beginn in Prozent, aber nicht pro Jahr normiert."
+    },
+    {
+      title: "Rendite p.a.",
+      value: formatPercent(metrics.returns.annualizedReturnPct),
+      color: metrics.returns.annualizedReturnPct >= 0 ? "success.main" : "error.main",
+      tooltip: "Die annualisierte Rendite rechnet die bisherige Entwicklung auf eine Jahresbasis um. Damit lassen sich Zeitraeume unterschiedlicher Laenge besser vergleichen."
+    },
+    {
+      title: "Money Weighted (XIRR)",
+      value: formatPercent(metrics.returns.moneyWeightedReturnPct),
+      color: metrics.returns.moneyWeightedReturnPct >= 0 ? "success.main" : "error.main",
+      tooltip: "Die geldgewichtete Rendite beruecksichtigt den Zeitpunkt deiner Ein- und Auszahlungen. Sie ist besonders hilfreich, wenn du ueber die Zeit mehrfach nachgekauft oder verkauft hast."
+    },
+    {
+      title: "Gesamtgebuehren",
+      value: formatCurrency(metrics.totalFees),
+      color: metrics.totalFees > 0 ? "error.main" : "text.primary",
+      tooltip: "Hier werden alle bisher angefallenen Transaktions- und Depotgebuehren aufsummiert. Der Wert ist eine kumulierte Kostenkennzahl und bereits indirekt im aktuellen Cash und Gesamtwert enthalten."
+    },
+    {
+      title: cashCardTitle,
+      value: formatCurrency(cashCardValue),
+      color: hasCashDeficit ? "error.main" : "success.main",
+      tooltip: hasCashDeficit
+        ? "Zeigt die aktuelle Unterdeckung des Cash-Kontos (Verrechnungskontos). Rechnerisch ergibt sie sich aus dem laufenden Kontostand nach allen Buchungen: Startkapital minus Kaeufe minus Kaufgebuehren plus Verkaeufe minus Verkaufsgebuehren minus Depotgebuehren. Liegt dieses Ergebnis unter null, wird der Fehlbetrag hier als Unterdeckung angezeigt."
+        : "Zeigt den aktuell verfuegbaren Restbetrag auf dem Cash-Konto (Verrechnungskonto). Rechnerisch gilt: Cash = Startkapital minus Kaeufe minus Kaufgebuehren plus Verkaeufe minus Verkaufsgebuehren minus Depotgebuehren. Dieser Betrag kann fuer neue ETF-Kaeufe verwendet werden, sofern Kaufpreis plus Transaktionsgebuehr den Cash-Bestand nicht uebersteigen."
+    },
+    {
+      title: "Laufzeit",
+      value: Number.isFinite(metrics.returns.daysActive) ? `${Math.max(1, Math.round(metrics.returns.daysActive))} Tage` : "-",
+      color: "text.primary",
+      tooltip: "Zeigt, wie lange das Portfolio bereits aktiv ist. Die Laufzeit dient als Grundlage fuer annualisierte Kennzahlen wie die Rendite p.a. oder die XIRR-Betrachtung."
+    }
+  ];
+
+  const renderMetricCard = ({ title, value, color, tooltip }) => (
+    <Grid item xs={12} md={4} key={title}>
+      <Tooltip
+        title={<Typography variant="body2">{tooltip}</Typography>}
+        arrow
+        placement="top"
+      >
+        <Paper sx={{ p: 2, cursor: "help" }}>
+          <Typography variant="subtitle2" color="text.secondary">
+            {title}
+          </Typography>
+          <Typography variant="h5" color={color}>
+            {value}
+          </Typography>
+        </Paper>
+      </Tooltip>
+    </Grid>
+  );
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <Grid container spacing={3}>
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary">
-              Realized P/L
-            </Typography>
-            <Typography variant="h5" color={metrics.realizedPnl >= 0 ? "success.main" : "error.main"}>
-              {formatCurrency(metrics.realizedPnl)}
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary">
-              Unrealized P/L
-            </Typography>
-            <Typography variant="h5" color={metrics.unrealizedPnl >= 0 ? "success.main" : "error.main"}>
-              {formatCurrency(metrics.unrealizedPnl)}
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary">
-              Gesamt P/L
-            </Typography>
-            <Typography variant="h5" color={metrics.totalPnl >= 0 ? "success.main" : "error.main"}>
-              {formatCurrency(metrics.totalPnl)}
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary">
-              Gesamtgebühren
-            </Typography>
-            <Typography variant="h5" color={metrics.totalFees > 0 ? "error.main" : "text.primary"}>
-              {formatCurrency(metrics.totalFees)}
-            </Typography>
-          </Paper>
-        </Grid>
+        {metricCards.map(renderMetricCard)}
       </Grid>
 
       <Paper sx={{ p: 3 }}>

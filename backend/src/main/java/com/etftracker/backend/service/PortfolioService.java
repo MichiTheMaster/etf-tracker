@@ -257,12 +257,7 @@ public class PortfolioService {
                     .setScale(2, RoundingMode.HALF_UP);
 
             if (totalFee.compareTo(BigDecimal.ZERO) > 0) {
-                if (portfolio.getCash().compareTo(totalFee) >= 0) {
-                    portfolio.setCash(portfolio.getCash().subtract(totalFee));
-                } else {
-                    totalFee = portfolio.getCash();
-                    portfolio.setCash(BigDecimal.ZERO);
-                }
+                portfolio.setCash(portfolio.getCash().subtract(totalFee));
 
                 Transaction feeTx = new Transaction(
                         portfolio,

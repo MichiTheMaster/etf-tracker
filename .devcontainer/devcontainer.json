@@ -1,0 +1,17 @@
+{
+  "name": "openwebui-dev",
+  "image": "ghcr.io/open-webui/open-webui:latest",
+  "runArgs": [
+    "--name", "openwebui-dev",
+    "--restart", "unless-stopped",
+    "-p", "3001:8080",
+    "-v", "${localWorkspaceFolder}/openwebui-data:/data",
+    "-e", "HF_TOKEN=${localEnv:HF_TOKEN}"
+  ],
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "extensions": [
+    "ms-azuretools.vscode-docker",
+    "ms-vscode-remote.remote-containers"
+  ]
+}

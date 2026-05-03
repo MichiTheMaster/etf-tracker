@@ -5,6 +5,12 @@ const STORAGE_KEY_PREFIX_V2 = "etfSimulatorStateV2:";
 const SESSION_USERNAME_KEY = "sessionUsername";
 const ETF_SELECTION_KEY_PREFIX = "etfSelectionV1:";
 const CUSTOM_ETF_KEY_PREFIX = "customEtfCatalogV1:";
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const DAYS_PER_YEAR = 365.2425;
+const XIRR_TOLERANCE = 1e-7;
+const XIRR_MAX_ITERATIONS = 200;
+const XIRR_MIN_RATE = -0.999999;
+const XIRR_MAX_RATE = 1024;
 
 export const ETF_CATALOG = [
   { symbol: "VWCE", name: "Vanguard FTSE All-World UCITS ETF", price: 116.2, ter: 0.22 },
@@ -181,6 +187,253 @@ function findEtf(symbol) {
   return [...ETF_CATALOG, ...custom].find((item) => item.symbol === symbol);
 }
 
+function parseDateValue(value) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getElapsedDays(startDate, endDate) {
+  if (!(startDate instanceof Date) || !(endDate instanceof Date)) {
+    return null;
+  }
+
+  const diffMs = endDate.getTime() - startDate.getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) {
+    return null;
+  }
+
+  return diffMs / MS_PER_DAY;
+}
+
+function getElapsedYears(startDate, endDate) {
+  const elapsedDays = getElapsedDays(startDate, endDate);
+  if (elapsedDays == null) {
+    return null;
+  }
+
+  return elapsedDays / DAYS_PER_YEAR;
+}
+
+function getSortedTransactions(state) {
+  return Array.isArray(state?.transactions)
+    ? [...state.transactions]
+        .map((tx) => ({ ...tx, parsedTimestamp: parseDateValue(tx.timestamp) }))
+        .filter((tx) => tx.parsedTimestamp)
+        .sort((left, right) => left.parsedTimestamp - right.parsedTimestamp)
+    : [];
+}
+
+function getEarliestDate(candidates) {
+  const validDates = candidates.filter((value) => value instanceof Date);
+  if (validDates.length === 0) {
+    return null;
+  }
+
+  return new Date(Math.min(...validDates.map((value) => value.getTime())));
+}
+
+function calculateTotalReturnPercent(startValue, endValue) {
+  if (!Number.isFinite(startValue) || !Number.isFinite(endValue) || startValue <= 0) {
+    return null;
+  }
+
+  return ((endValue / startValue) - 1) * 100;
+}
+
+function calculateAnnualizedReturnPercent(startValue, endValue, startDate, endDate) {
+  if (!Number.isFinite(startValue) || !Number.isFinite(endValue) || startValue <= 0 || endValue <= 0) {
+    return null;
+  }
+
+  const elapsedYears = getElapsedYears(startDate, endDate);
+  if (!Number.isFinite(elapsedYears) || elapsedYears <= 0) {
+    return null;
+  }
+
+  return (Math.pow(endValue / startValue, 1 / elapsedYears) - 1) * 100;
+}
+
+function hasPositiveAndNegativeCashFlows(cashFlows) {
+  let hasPositive = false;
+  let hasNegative = false;
+
+  for (const flow of cashFlows) {
+    if (flow.amount > 0) {
+      hasPositive = true;
+    }
+    if (flow.amount < 0) {
+      hasNegative = true;
+    }
+  }
+
+  return hasPositive && hasNegative;
+}
+
+function calculateXnpv(rate, cashFlows) {
+  const baseDate = cashFlows[0]?.date;
+  if (!(baseDate instanceof Date) || rate <= XIRR_MIN_RATE) {
+    return Number.NaN;
+  }
+
+  return cashFlows.reduce((sum, flow) => {
+    const elapsedYears = getElapsedYears(baseDate, flow.date);
+    if (!Number.isFinite(elapsedYears)) {
+      return sum;
+    }
+    return sum + (flow.amount / Math.pow(1 + rate, elapsedYears));
+  }, 0);
+}
+
+function calculateXirrPercent(cashFlows) {
+  const normalizedCashFlows = cashFlows
+    .filter((flow) => flow.date instanceof Date && Number.isFinite(flow.amount) && flow.amount !== 0)
+    .sort((left, right) => left.date - right.date);
+
+  if (normalizedCashFlows.length < 2 || !hasPositiveAndNegativeCashFlows(normalizedCashFlows)) {
+    return null;
+  }
+
+  let lowerRate = XIRR_MIN_RATE;
+  let upperRate = 0.1;
+  let lowerValue = calculateXnpv(lowerRate, normalizedCashFlows);
+  let upperValue = calculateXnpv(upperRate, normalizedCashFlows);
+
+  while (Number.isFinite(lowerValue) && Number.isFinite(upperValue) && lowerValue * upperValue > 0 && upperRate < XIRR_MAX_RATE) {
+    upperRate = upperRate < 1 ? upperRate * 2 + 0.1 : upperRate * 2;
+    upperValue = calculateXnpv(upperRate, normalizedCashFlows);
+  }
+
+  if (!Number.isFinite(lowerValue) || !Number.isFinite(upperValue) || lowerValue * upperValue > 0) {
+    return null;
+  }
+
+  let midRate = null;
+  for (let index = 0; index < XIRR_MAX_ITERATIONS; index += 1) {
+    midRate = (lowerRate + upperRate) / 2;
+    const midValue = calculateXnpv(midRate, normalizedCashFlows);
+
+    if (!Number.isFinite(midValue)) {
+      return null;
+    }
+
+    if (Math.abs(midValue) <= XIRR_TOLERANCE) {
+      return midRate * 100;
+    }
+
+    if (lowerValue * midValue <= 0) {
+      upperRate = midRate;
+      upperValue = midValue;
+    } else {
+      lowerRate = midRate;
+      lowerValue = midValue;
+    }
+  }
+
+  return midRate == null ? null : midRate * 100;
+}
+
+function getTransactionNetAmount(transaction) {
+  const total = Number(transaction?.total || 0);
+  const fee = Number(transaction?.fee || 0);
+
+  if (transaction?.type === "BUY") {
+    return -(total + fee);
+  }
+
+  if (transaction?.type === "SELL") {
+    return total - fee;
+  }
+
+  if (transaction?.type === "DEPOT_FEE") {
+    return -Math.abs(total || fee);
+  }
+
+  return 0;
+}
+
+function getPortfolioStartDate(sortedTransactions, positions, now) {
+  const holdingDates = positions
+    .map((position) => parseDateValue(position.addedAt))
+    .filter(Boolean);
+
+  return getEarliestDate([
+    sortedTransactions[0]?.parsedTimestamp || null,
+    ...holdingDates,
+    now
+  ]) || now;
+}
+
+function calculatePortfolioReturnMetrics(state, positions, totalValue, now) {
+  const sortedTransactions = getSortedTransactions(state);
+  const startDate = getPortfolioStartDate(sortedTransactions, positions, now);
+  const currentCash = Number(state?.cash || 0);
+
+  const initialCapital = sortedTransactions.reduce((sum, transaction) => {
+    const netAmount = getTransactionNetAmount(transaction);
+    return sum - netAmount;
+  }, currentCash);
+
+  const safeInitialCapital = Number.isFinite(initialCapital) && initialCapital > 0
+    ? initialCapital
+    : totalValue;
+
+  const totalReturnPct = calculateTotalReturnPercent(safeInitialCapital, totalValue);
+  const annualizedReturnPct = calculateAnnualizedReturnPercent(safeInitialCapital, totalValue, startDate, now);
+  const moneyWeightedReturnPct = calculateXirrPercent([
+    { date: startDate, amount: -safeInitialCapital },
+    { date: now, amount: totalValue }
+  ]) ?? annualizedReturnPct;
+
+  return {
+    initialCapital: safeInitialCapital,
+    startDate: startDate.toISOString(),
+    daysActive: getElapsedDays(startDate, now),
+    totalReturnPct,
+    annualizedReturnPct,
+    moneyWeightedReturnPct
+  };
+}
+
+function calculatePositionReturnMetrics(position, sortedTransactions, transactionFeeRate, now) {
+  const symbolTransactions = sortedTransactions.filter((transaction) => transaction.symbol === position.symbol);
+  const positionStartDate = getEarliestDate([
+    symbolTransactions[0]?.parsedTimestamp || null,
+    parseDateValue(position.addedAt),
+    now
+  ]) || now;
+
+  const currentValue = Number(position.currentValue || 0);
+  const estimatedExitValue = currentValue > 0 && Number.isFinite(transactionFeeRate)
+    ? currentValue * (1 - transactionFeeRate)
+    : currentValue;
+
+  const cashFlows = symbolTransactions
+    .map((transaction) => ({
+      date: transaction.parsedTimestamp,
+      amount: getTransactionNetAmount(transaction)
+    }))
+    .filter((flow) => flow.amount !== 0);
+
+  if (estimatedExitValue > 0) {
+    cashFlows.push({ date: now, amount: estimatedExitValue });
+  }
+
+  const moneyWeightedReturnPct = calculateXirrPercent(cashFlows);
+  const annualizedReturnPct = moneyWeightedReturnPct
+    ?? calculateAnnualizedReturnPercent(position.costTotal, estimatedExitValue, positionStartDate, now);
+
+  return {
+    startDate: positionStartDate.toISOString(),
+    holdingDays: getElapsedDays(positionStartDate, now),
+    annualizedReturnPct,
+    moneyWeightedReturnPct: moneyWeightedReturnPct ?? annualizedReturnPct
+  };
+}
+
 export async function searchEtfPool(query, limit = 15) {
   if (!query || !query.trim()) {
     return [];
@@ -322,6 +575,9 @@ export function sellEtf(state, symbol, quantity, priceOverride = null) {
 
 export function calculateMetrics(state, livePrices = null, options = {}) {
   const allowCatalogFallback = options.allowCatalogFallback ?? true;
+  const sortedTransactions = getSortedTransactions(state);
+  const transactionFeeRate = Number(state?.transactionFeeRate || 0);
+  const now = new Date();
 
   const positions = Object.entries(state.holdings).map(([symbol, holding]) => {
     const etf = findEtf(symbol);
@@ -339,6 +595,12 @@ export function calculateMetrics(state, livePrices = null, options = {}) {
     const averageCost = holding.shares > 0 ? holding.costTotal / holding.shares : 0;
     const pnlAbs = currentPrice == null ? null : currentValue - holding.costTotal;
     const pnlPct = currentPrice == null || holding.costTotal <= 0 ? null : (pnlAbs / holding.costTotal) * 100;
+    const returnMetrics = calculatePositionReturnMetrics({
+      symbol,
+      addedAt: holding.addedAt || null,
+      costTotal: holding.costTotal,
+      currentValue
+    }, sortedTransactions, transactionFeeRate, now);
 
     return {
       symbol,
@@ -350,7 +612,10 @@ export function calculateMetrics(state, livePrices = null, options = {}) {
       costTotal: holding.costTotal,
       currentValue,
       pnlAbs,
-      pnlPct
+      pnlPct,
+      holdingDays: returnMetrics.holdingDays,
+      annualizedReturnPct: returnMetrics.annualizedReturnPct,
+      moneyWeightedReturnPct: returnMetrics.moneyWeightedReturnPct
     };
   });
 
@@ -364,6 +629,8 @@ export function calculateMetrics(state, livePrices = null, options = {}) {
   const totalFees = state.transactions
     .reduce((sum, tx) => sum + (Number(tx.fee) || 0), 0);
 
+  const returns = calculatePortfolioReturnMetrics(state, positions, state.cash + investedValue, now);
+
   return {
     cash: state.cash,
     investedValue,
@@ -374,6 +641,7 @@ export function calculateMetrics(state, livePrices = null, options = {}) {
     realizedPnl,
     totalPnl: unrealizedPnl + realizedPnl,
     totalFees,
+    returns,
     positions
   };
 }
@@ -387,5 +655,9 @@ export function formatCurrency(value) {
 }
 
 export function formatPercent(value) {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }

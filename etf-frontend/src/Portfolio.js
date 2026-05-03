@@ -159,9 +159,6 @@ export default function Portfolio() {
     return () => clearTimeout(timeoutId);
   }, [countdown, isRefreshing, refreshQuotes]);
 
-  const priceMap = quotes
-    ? Object.fromEntries(Object.entries(quotes).map(([s, q]) => [s, q.price]))
-    : null;
   const trustedPriceMap = quotes
     ? Object.fromEntries(
         Object.entries(quotes)
@@ -178,6 +175,8 @@ export default function Portfolio() {
     : {};
 
   const metrics = state ? calculateMetrics(state, trustedPriceMap, { allowCatalogFallback: false }) : null;
+  const hasCashDeficit = Number(metrics?.cash || 0) < 0;
+  const cashDeficitAmount = hasCashDeficit ? Math.abs(Number(metrics?.cash || 0)) : 0;
   const quotesReady = hasValidQuoteCoverage(quotes, Object.keys(state?.holdings || {}), customSymbols);
   const hasHoldings = metrics ? metrics.positions.length > 0 : false;
   const shouldShowLivePortfolioValues = !hasHoldings || quotesReady;
@@ -225,6 +224,10 @@ export default function Portfolio() {
       } else if (sortConfig.field === "pnl") {
         aValue = Number(a.pnlAbs || 0);
         bValue = Number(b.pnlAbs || 0);
+        return (aValue - bValue) * directionFactor;
+      } else if (sortConfig.field === "annualizedReturn") {
+        aValue = Number(a.annualizedReturnPct || 0);
+        bValue = Number(b.annualizedReturnPct || 0);
         return (aValue - bValue) * directionFactor;
       }
 
@@ -311,37 +314,80 @@ export default function Portfolio() {
     );
   }
 
+  const summaryCards = [
+    {
+      title: "Gesamtwert",
+      value: shouldShowLivePortfolioValues ? formatCurrency(metrics.totalValue) : "Lädt...",
+      tooltip: "Der Gesamtwert ist die Summe aus aktuellem Cash-Bestand und dem aktuellen Marktwert aller gehaltenen ETF-Positionen. Er zeigt damit den kompletten Depotstand zum jetzigen Zeitpunkt.",
+      color: "text.primary"
+    },
+    {
+      title: "Cash",
+      value: formatCurrency(metrics.cash),
+      detail: hasCashDeficit ? "Unterdeckung im Cash-Konto" : "",
+      detailColor: "error.main",
+      tooltip: hasCashDeficit
+        ? "Cash zeigt den aktuellen Kontostand des Cash-Kontos (Verrechnungskontos). Wenn dieser unter null liegt, besteht eine Unterdeckung. Rechnerisch ergibt sich der Wert aus Startkapital minus Kaeufe minus Kaufgebuehren plus Verkaeufe minus Verkaufsgebuehren minus Depotgebuehren."
+        : "Cash zeigt den aktuell verfuegbaren Restbetrag auf dem Cash-Konto (Verrechnungskonto). Rechnerisch ergibt sich der Wert aus Startkapital minus Kaeufe minus Kaufgebuehren plus Verkaeufe minus Verkaufsgebuehren minus Depotgebuehren.",
+      color: hasCashDeficit ? "error.main" : "text.primary"
+    },
+    {
+      title: "Unrealized P/L",
+      value: shouldShowLivePortfolioValues ? formatCurrency(metrics.unrealizedPnl) : "Lädt...",
+      tooltip: "Dieser Wert zeigt den aktuellen Buchgewinn oder Buchverlust deiner noch gehaltenen Positionen. Er vergleicht heutigen Marktwert mit dem jeweiligen Einstandswert, ohne bereits verkaufte Positionen einzubeziehen.",
+      color: metrics.unrealizedPnl >= 0 ? "success.main" : "error.main"
+    },
+    {
+      title: "Rendite p.a.",
+      value: formatPercent(metrics.returns.annualizedReturnPct),
+      tooltip: "Die Rendite p.a. annualisiert die bisherige Portfolioentwicklung. Dadurch kannst du die Performance auch bei kurzen oder unterschiedlich langen Anlagezeiträumen besser vergleichen.",
+      color: metrics.returns.annualizedReturnPct >= 0 ? "success.main" : "error.main"
+    },
+    {
+      title: "Unterdeckung",
+      value: formatCurrency(cashDeficitAmount),
+      detail: hasCashDeficit ? "Ausgleich des Cash-Kontos erforderlich" : "",
+      detailColor: hasCashDeficit ? "error.main" : "text.secondary",
+      tooltip: hasCashDeficit
+        ? "Eine Unterdeckung liegt vor, wenn das Cash-Konto (Verrechnungskonto) unter null gefallen ist. Der hier angezeigte Betrag entspricht genau dem Fehlbetrag, der rechnerisch ausgeglichen werden muesste."
+        : "Solange hier 0,00 EUR steht, besteht keine Unterdeckung. Das Cash-Konto ist dann nicht im Minus und es muss nichts nachgeschossen werden.",
+      color: hasCashDeficit ? "error.main" : "success.main"
+    }
+  ];
+
+  const renderSummaryCard = ({ title, value, detail, color = "text.primary", detailColor = "text.secondary", tooltip }) => (
+    <Grid item xs={12} md={4} key={title}>
+      <Tooltip
+        title={<Typography variant="body2">{tooltip}</Typography>}
+        arrow
+        placement="top"
+      >
+        <Paper sx={{ p: 2, cursor: "help" }}>
+          <Typography variant="subtitle2" color="text.secondary">
+            {title}
+          </Typography>
+          <Typography variant="h5" color={color}>
+            {value}
+          </Typography>
+          {detail ? (
+            <Typography variant="body2" color={detailColor}>
+              {detail}
+            </Typography>
+          ) : null}
+        </Paper>
+      </Tooltip>
+    </Grid>
+  );
+
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      {hasCashDeficit && (
+        <Alert severity="warning" variant="filled">
+          Negativer Cash-Saldo: Das Verrechnungskonto ist in Unterdeckung und sollte ausgeglichen werden.
+        </Alert>
+      )}
       <Grid container spacing={3}>
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary">
-              Gesamtwert
-            </Typography>
-            <Typography variant="h5">
-              {shouldShowLivePortfolioValues ? formatCurrency(metrics.totalValue) : "Lädt..."}
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary">
-              Cash
-            </Typography>
-            <Typography variant="h5">{formatCurrency(metrics.cash)}</Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary">
-              Unrealized P/L
-            </Typography>
-            <Typography variant="h5" color={metrics.unrealizedPnl >= 0 ? "success.main" : "error.main"}>
-              {shouldShowLivePortfolioValues ? formatCurrency(metrics.unrealizedPnl) : "Lädt..."}
-            </Typography>
-          </Paper>
-        </Grid>
+        {summaryCards.map(renderSummaryCard)}
       </Grid>
 
       <Paper sx={{ p: 3 }}>
@@ -444,6 +490,17 @@ export default function Portfolio() {
                     </TableSortLabel>
                   </Tooltip>
                 </TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "annualizedReturn" ? sortConfig.direction : false}>
+                  <Tooltip title="Zum Sortieren klicken (auf/absteigend)">
+                    <TableSortLabel
+                      active={sortConfig.field === "annualizedReturn"}
+                      direction={sortConfig.field === "annualizedReturn" ? sortConfig.direction : "asc"}
+                      onClick={() => handleSort("annualizedReturn")}
+                    >
+                      Rendite p.a.
+                    </TableSortLabel>
+                  </Tooltip>
+                </TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>Hinzugefuegt</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>Verkauf</TableCell>
               </TableRow>
@@ -460,6 +517,11 @@ export default function Portfolio() {
                     sx={{ color: quotesReady && position.pnlAbs >= 0 ? "success.main" : "error.main" }}
                   >
                     {quotesReady ? `${formatCurrency(position.pnlAbs)} (${formatPercent(position.pnlPct)})` : "Lädt..."}
+                  </TableCell>
+                  <TableCell
+                    sx={{ color: position.annualizedReturnPct >= 0 ? "success.main" : "error.main" }}
+                  >
+                    {quotesReady ? formatPercent(position.annualizedReturnPct) : "Lädt..."}
                   </TableCell>
                   <TableCell>{formatAddedAt(position.addedAt)}</TableCell>
                   <TableCell>
@@ -498,7 +560,7 @@ export default function Portfolio() {
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Transaktionsgebühren werden direkt beim Kauf/Verkauf vom Cash abgezogen.
-          Depotgebühren werden monatlich automatisch berechnet (anteilig p.a.).
+          Depotgebühren werden monatlich automatisch berechnet (anteilig p.a.) und koennen einen negativen Cash-Saldo verursachen.
         </Typography>
         <Box sx={{ display: "flex", gap: 2, alignItems: "flex-end", flexWrap: "wrap" }}>
           <TextField
