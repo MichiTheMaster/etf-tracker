@@ -4,6 +4,7 @@ public class RegisterRequest {
     private String username;
     private String email;
     private String password;
+    private boolean acceptedTerms;
 
     public RegisterRequest() {
     }
@@ -30,5 +31,13 @@ public class RegisterRequest {
 
     public void setPassword(String password) {
         this.password = password;
+    }
+
+    public boolean isAcceptedTerms() {
+        return acceptedTerms;
+    }
+
+    public void setAcceptedTerms(boolean acceptedTerms) {
+        this.acceptedTerms = acceptedTerms;
     }
 }

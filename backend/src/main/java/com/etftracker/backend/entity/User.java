@@ -2,7 +2,9 @@ package com.etftracker.backend.entity;
 
 import jakarta.persistence.*;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 @Entity
@@ -39,6 +41,17 @@ public class User {
 
     @Column(length = 255)
     private String lastLoginUserAgent;
+
+    @Column
+    private Instant termsAcceptedAt;
+
+    @Column
+    private Instant passwordChangedAt;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "user_password_history", joinColumns = @JoinColumn(name = "user_id"))
+    @Column(name = "password_hash", nullable = false, length = 100)
+    private List<String> passwordHistory = new ArrayList<>();
 
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"), inverseJoinColumns = @JoinColumn(name = "role_id"))
@@ -130,5 +143,29 @@ public class User {
 
     public void setLastLoginUserAgent(String lastLoginUserAgent) {
         this.lastLoginUserAgent = lastLoginUserAgent;
+    }
+
+    public Instant getTermsAcceptedAt() {
+        return termsAcceptedAt;
+    }
+
+    public void setTermsAcceptedAt(Instant termsAcceptedAt) {
+        this.termsAcceptedAt = termsAcceptedAt;
+    }
+
+    public Instant getPasswordChangedAt() {
+        return passwordChangedAt;
+    }
+
+    public void setPasswordChangedAt(Instant passwordChangedAt) {
+        this.passwordChangedAt = passwordChangedAt;
+    }
+
+    public List<String> getPasswordHistory() {
+        return passwordHistory;
+    }
+
+    public void setPasswordHistory(List<String> passwordHistory) {
+        this.passwordHistory = passwordHistory == null ? new ArrayList<>() : passwordHistory;
     }
 }

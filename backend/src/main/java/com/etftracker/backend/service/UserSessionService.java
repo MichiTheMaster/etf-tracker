@@ -76,6 +76,21 @@ public class UserSessionService {
     }
 
     @Transactional
+    public void revokeAll(String username) {
+        if (username == null || username.isBlank()) {
+            return;
+        }
+        Instant now = Instant.now();
+        List<UserSession> sessions = userSessionRepository.findByUserUsernameOrderByLastSeenAtDesc(username);
+        for (UserSession session : sessions) {
+            if (session.getRevokedAt() == null) {
+                session.setRevokedAt(now);
+            }
+        }
+        userSessionRepository.saveAll(sessions);
+    }
+
+    @Transactional
     public void revokeAllOther(String username, String currentSessionId) {
         Instant now = Instant.now();
         List<UserSession> sessions = userSessionRepository.findByUserUsernameOrderByLastSeenAtDesc(username);

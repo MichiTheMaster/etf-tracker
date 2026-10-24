@@ -58,19 +58,19 @@ public class EmailVerificationService {
         SimpleMailMessage message = new SimpleMailMessage();
         message.setTo(user.getEmail());
         message.setFrom(mailFrom);
-        message.setSubject("ETF Tracker: Bitte E-Mail bestaetigen");
+        message.setSubject("ETF Tracker: Bitte E-Mail bestätigen");
         message.setText(
                 "Hallo " + user.getUsername() + ",\n\n"
-                        + "bitte bestaetige deine E-Mail-Adresse mit diesem Link:\n"
+                        + "bitte bestätige deine E-Mail-Adresse mit diesem Link:\n"
                         + verifyUrl + "\n\n"
-                        + "Der Link ist " + tokenValidHours + " Stunden gueltig.");
+                        + "Der Link ist " + tokenValidHours + " Stunden gültig.");
         mailSender.send(message);
     }
 
     @Transactional
     public void verifyEmail(String token) {
         EmailVerificationToken verificationToken = tokenRepository.findByToken(token)
-                .orElseThrow(() -> new IllegalArgumentException("Verifizierungslink ist ungueltig"));
+                .orElseThrow(() -> new IllegalArgumentException("Verifizierungslink ist ungültig"));
 
         if (verificationToken.getUsedAt() != null) {
             throw new IllegalArgumentException("Verifizierungslink wurde bereits verwendet");

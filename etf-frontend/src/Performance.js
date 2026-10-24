@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Alert, Box, Grid, Paper, Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from "@mui/material";
-import { calculateMetrics, fetchLivePrices, fetchPortfolioBenchmarkSettings, formatCurrency, formatPercent } from "./simulatorStorage";
+import { calculateMetrics, fetchLivePrices, fetchPortfolioBenchmarkSettings, formatCurrency, formatPercent, tradeTypeLabel } from "./simulatorStorage";
 import { PortfolioAPI } from "./portfolioAPI";
+import { formatDateTime, useI18n } from "./i18n";
 
 function calculateBenchmarkReturnPct(annualRatePct, holdingDays) {
   const normalizedAnnualRatePct = Number(annualRatePct);
@@ -16,6 +17,7 @@ function calculateBenchmarkReturnPct(annualRatePct, holdingDays) {
 }
 
 export default function Performance() {
+  const { t } = useI18n();
   const [state, setState] = useState(null);
   const [quotes, setQuotes] = useState(null);
   const [error, setError] = useState("");
@@ -33,12 +35,12 @@ export default function Performance() {
         setBenchmarkAnnualRatePct(Number(benchmarkSettings?.annualRatePct || 3));
 
         const symbols = Object.keys(portfolioState?.holdings || {});
-        const quoteData = await fetchLivePrices(true, symbols);
+        const quoteData = await fetchLivePrices(false, symbols);
         if (quoteData) {
           setQuotes(quoteData);
         }
       } catch (loadError) {
-        setError(loadError?.message || "Performance konnte nicht geladen werden.");
+        setError(loadError?.message || t("performance.loadFailed"));
       } finally {
         setIsLoading(false);
       }
@@ -50,7 +52,7 @@ export default function Performance() {
   if (isLoading) {
     return (
       <Paper sx={{ p: 3 }}>
-        <Typography>Performance wird geladen...</Typography>
+        <Typography>{t("performance.loading")}</Typography>
       </Paper>
     );
   }
@@ -58,13 +60,17 @@ export default function Performance() {
   if (!state) {
     return (
       <Paper sx={{ p: 3 }}>
-        <Alert severity="error">{error || "Performance konnte nicht geladen werden."}</Alert>
+        <Alert severity="error">{error || t("performance.loadFailed")}</Alert>
       </Paper>
     );
   }
 
   const priceMap = quotes
-    ? Object.fromEntries(Object.entries(quotes).map(([symbol, quote]) => [symbol, quote.price]))
+    ? Object.fromEntries(
+        Object.entries(quotes)
+          .filter(([, quote]) => Number(quote?.price) > 0)
+          .map(([symbol, quote]) => [symbol, quote.price])
+      )
     : null;
 
   const metrics = calculateMetrics(state, priceMap);
@@ -74,64 +80,64 @@ export default function Performance() {
     : metrics.returns.totalReturnPct - benchmarkReturnPct;
   const hasCashDeficit = Number(metrics.cash || 0) < 0;
   const cashDeficitAmount = hasCashDeficit ? Math.abs(Number(metrics.cash || 0)) : 0;
-  const cashCardTitle = hasCashDeficit ? "Unterdeckung" : "Cash";
+  const cashCardTitle = hasCashDeficit ? t("performance.deficit") : t("performance.cash");
   const cashCardValue = hasCashDeficit ? cashDeficitAmount : metrics.cash;
   const metricCards = [
     {
-      title: "Realized P/L",
+      title: t("performance.realized"),
       value: formatCurrency(metrics.realizedPnl),
       color: metrics.realizedPnl >= 0 ? "success.main" : "error.main",
-      tooltip: "Zeigt den bereits realisierten Gewinn oder Verlust aus abgeschlossenen Verkaeufen. Dieser Wert entsteht erst dann, wenn eine Position ganz oder teilweise verkauft wurde."
+      tooltip: t("performance.realizedHint")
     },
     {
-      title: "Unrealized P/L",
+      title: t("performance.unrealized"),
       value: formatCurrency(metrics.unrealizedPnl),
       color: metrics.unrealizedPnl >= 0 ? "success.main" : "error.main",
-      tooltip: "Zeigt den aktuellen Buchgewinn oder Buchverlust deiner noch gehaltenen Positionen. Grundlage ist der Vergleich zwischen aktuellem Marktwert und historischem Einstandswert."
+      tooltip: t("performance.unrealizedHint")
     },
     {
-      title: "Gesamt P/L",
+      title: t("performance.totalPnl"),
       value: formatCurrency(metrics.totalPnl),
       color: metrics.totalPnl >= 0 ? "success.main" : "error.main",
-      tooltip: "Addiert realisierte und unrealisierte Ergebnisse. Damit siehst du den gesamten bisherigen Erfolg oder Misserfolg des Portfolios ohne getrennte Betrachtung einzelner Positionen."
+      tooltip: t("performance.totalPnlHint")
     },
     {
-      title: "Performance",
+      title: t("performance.performance"),
       value: formatPercent(outperformancePct),
       color: outperformancePct >= 0 ? "success.main" : "error.main",
-      tooltip: "Die Performance vergleicht die bisherige Portfolio-Rendite mit dem konfigurierten Benchmark fuer denselben Zeitraum. Positive Werte bedeuten, dass dein Portfolio besser als der Benchmark gelaufen ist."
+      tooltip: t("performance.performanceHint")
     },
     {
-      title: "Rendite",
+      title: t("performance.returnTitle"),
       value: formatPercent(metrics.returns.totalReturnPct),
       color: metrics.returns.totalReturnPct >= 0 ? "success.main" : "error.main",
-      tooltip: "Die Rendite zeigt die bisherige prozentuale Entwicklung des Portfolios seit Start. Sie ist nicht annualisiert und entspricht damit der direkt sichtbaren ETF-Rendite fuer den bisherigen Zeitraum."
+      tooltip: t("performance.returnHint")
     },
     {
-      title: "Money Weighted (XIRR)",
+      title: t("performance.xirr"),
       value: formatPercent(metrics.returns.moneyWeightedReturnPct),
       color: metrics.returns.moneyWeightedReturnPct >= 0 ? "success.main" : "error.main",
-      tooltip: "Die geldgewichtete Rendite beruecksichtigt den Zeitpunkt deiner Ein- und Auszahlungen. Sie ist besonders hilfreich, wenn du ueber die Zeit mehrfach nachgekauft oder verkauft hast."
+      tooltip: t("performance.xirrHint")
     },
     {
-      title: "Gesamtgebuehren",
+      title: t("performance.fees"),
       value: formatCurrency(metrics.totalFees),
       color: metrics.totalFees > 0 ? "error.main" : "text.primary",
-      tooltip: "Hier werden alle bisher angefallenen Transaktions- und Depotgebuehren aufsummiert. Der Wert ist eine kumulierte Kostenkennzahl und bereits indirekt im aktuellen Cash und Gesamtwert enthalten."
+      tooltip: t("performance.feesHint")
     },
     {
       title: cashCardTitle,
       value: formatCurrency(cashCardValue),
       color: hasCashDeficit ? "error.main" : "success.main",
-      tooltip: hasCashDeficit
-        ? "Zeigt die aktuelle Unterdeckung des Cash-Kontos (Verrechnungskontos). Rechnerisch ergibt sie sich aus dem laufenden Kontostand nach allen Buchungen: Startkapital minus Kaeufe minus Kaufgebuehren plus Verkaeufe minus Verkaufsgebuehren minus Depotgebuehren. Liegt dieses Ergebnis unter null, wird der Fehlbetrag hier als Unterdeckung angezeigt."
-        : "Zeigt den aktuell verfuegbaren Restbetrag auf dem Cash-Konto (Verrechnungskonto). Rechnerisch gilt: Cash = Startkapital minus Kaeufe minus Kaufgebuehren plus Verkaeufe minus Verkaufsgebuehren minus Depotgebuehren. Dieser Betrag kann fuer neue ETF-Kaeufe verwendet werden, sofern Kaufpreis plus Transaktionsgebuehr den Cash-Bestand nicht uebersteigen."
+      tooltip: hasCashDeficit ? t("performance.cashHintYes") : t("performance.cashHintNo")
     },
     {
-      title: "Laufzeit",
-      value: Number.isFinite(metrics.returns.daysActive) ? `${Math.max(1, Math.round(metrics.returns.daysActive))} Tage` : "-",
+      title: t("performance.runtime"),
+      value: Number.isFinite(metrics.returns.daysActive)
+        ? t("performance.runtimeDays", { days: Math.max(1, Math.round(metrics.returns.daysActive)) })
+        : t("common.dash"),
       color: "text.primary",
-      tooltip: "Zeigt, wie lange das Portfolio bereits aktiv ist. Die Laufzeit dient als Grundlage fuer Zeitvergleiche wie Benchmark und XIRR-Betrachtung."
+      tooltip: t("performance.runtimeHint")
     }
   ];
 
@@ -162,35 +168,35 @@ export default function Performance() {
 
       <Paper sx={{ p: 3 }}>
           <Typography variant="h5" sx={{ mb: 2 }}>
-            Letzte Trades
+            {t("performance.lastTrades")}
           </Typography>
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Zeit</TableCell>
-                <TableCell>Typ</TableCell>
-                <TableCell>Symbol</TableCell>
-                <TableCell>Anzahl</TableCell>
-                <TableCell>Preis</TableCell>
-                <TableCell>Betrag</TableCell>
-                <TableCell>Gebühr</TableCell>
-                <TableCell>Realized</TableCell>
+                <TableCell>{t("performance.time")}</TableCell>
+                <TableCell>{t("performance.type")}</TableCell>
+                <TableCell>{t("performance.symbol")}</TableCell>
+                <TableCell>{t("performance.quantity")}</TableCell>
+                <TableCell>{t("performance.price")}</TableCell>
+                <TableCell>{t("performance.amount")}</TableCell>
+                <TableCell>{t("performance.fee")}</TableCell>
+                <TableCell>{t("performance.realizedCol")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {state.transactions.slice(0, 20).map((tx) => (
                 <TableRow key={tx.id}>
-                  <TableCell>{new Date(tx.timestamp).toLocaleString("de-DE")}</TableCell>
-                  <TableCell>{tx.type === "DEPOT_FEE" ? "Depotgebühr" : tx.type}</TableCell>
-                  <TableCell>{tx.type === "DEPOT_FEE" ? "-" : tx.symbol}</TableCell>
-                  <TableCell>{tx.type === "DEPOT_FEE" ? "-" : tx.quantity}</TableCell>
-                  <TableCell>{tx.type === "DEPOT_FEE" ? "-" : formatCurrency(tx.price)}</TableCell>
+                  <TableCell>{formatDateTime(tx.timestamp)}</TableCell>
+                  <TableCell>{tradeTypeLabel(tx.type)}</TableCell>
+                  <TableCell>{tx.type === "DEPOT_FEE" ? t("common.dash") : tx.symbol}</TableCell>
+                  <TableCell>{tx.type === "DEPOT_FEE" ? t("common.dash") : tx.quantity}</TableCell>
+                  <TableCell>{tx.type === "DEPOT_FEE" ? t("common.dash") : formatCurrency(tx.price)}</TableCell>
                   <TableCell>{formatCurrency(tx.total)}</TableCell>
                   <TableCell sx={{ color: tx.fee ? "error.main" : "text.secondary" }}>
-                    {tx.fee ? formatCurrency(tx.fee) : "-"}
+                    {tx.fee ? formatCurrency(tx.fee) : t("common.dash")}
                   </TableCell>
                   <TableCell>
-                    {tx.type === "SELL" ? formatCurrency(tx.realizedProfit || 0) : "-"}
+                    {tx.type === "SELL" ? formatCurrency(tx.realizedProfit || 0) : t("common.dash")}
                   </TableCell>
                 </TableRow>
               ))}
@@ -199,7 +205,7 @@ export default function Performance() {
 
           {state.transactions.length === 0 && (
             <Typography sx={{ mt: 2 }} color="text.secondary">
-              Noch keine Trades vorhanden.
+              {t("performance.empty")}
             </Typography>
           )}
       </Paper>

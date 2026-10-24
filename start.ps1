@@ -61,15 +61,36 @@ $backendCommand = if (Test-Path $preferredJava) {
 } else {
     "`$env:DB_URL='$dbUrl'; `$env:DB_USERNAME='$dbUser'; `$env:DB_PASSWORD='$dbPass'; `$env:JWT_SECRET='$jwtSecret'; Set-Location '$backendDir'; .\\mvnw.cmd spring-boot:run"
 }
-$frontendCommand = "Set-Location '$frontendDir'; npm start"
+
+$nodeDir = @(
+    "C:\dev\node-v24.14.1-win-x64",
+    "C:\Program Files\nodejs"
+) | Where-Object { Test-Path (Join-Path $_ "npm.cmd") } | Select-Object -First 1
+
+if (-not $nodeDir) {
+    $nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue
+    if ($nodeCmd) { $nodeDir = Split-Path $nodeCmd.Source }
+}
+
+if (-not $nodeDir) {
+    Write-Error "Node.js nicht gefunden (npm.cmd). Frontend kann nicht starten."
+    exit 1
+}
+
+$pwshExe = @(
+    (Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\Microsoft.PowerShell_8wekyb3d8bbwe\pwsh.exe"),
+    (Join-Path $env:ProgramFiles "PowerShell\7\pwsh.exe")
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+if (-not $pwshExe) { $pwshExe = "powershell.exe" }
 
 $windowStyle = if ($Quiet) { "Minimized" } else { "Normal" }
 
 Write-Host "Starte Backend (Spring Boot)..." -ForegroundColor Cyan
-$backendProcess = Start-Process -FilePath "pwsh" -ArgumentList @("-NoLogo", "-Command", $backendCommand) -PassThru -WindowStyle $windowStyle
+$backendProcess = Start-Process -FilePath $pwshExe -ArgumentList @("-NoLogo", "-NoExit", "-Command", $backendCommand) -WorkingDirectory $backendDir -PassThru -WindowStyle $windowStyle
 
-Write-Host "Starte Frontend (React)..." -ForegroundColor Cyan
-$frontendProcess = Start-Process -FilePath "pwsh" -ArgumentList @("-NoLogo", "-Command", $frontendCommand) -PassThru -WindowStyle $windowStyle
+Write-Host "Starte Frontend (Vite)..." -ForegroundColor Cyan
+$frontendProcess = Start-Process -FilePath "cmd.exe" -ArgumentList @("/k", "set `"PATH=$nodeDir;%PATH%`" && npm.cmd start") -WorkingDirectory $frontendDir -PassThru -WindowStyle $windowStyle
 
 $state = [PSCustomObject]@{
     startedAt = (Get-Date).ToString("o")

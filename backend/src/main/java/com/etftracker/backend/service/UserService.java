@@ -24,6 +24,9 @@ public class UserService {
     private static final String USER_NOT_FOUND = "Benutzer nicht gefunden";
     private static final String MAX_FAILED_LOGIN_ATTEMPTS_KEY = "app.security.maxFailedLoginAttempts";
     private static final String LOCK_DURATION_MINUTES_KEY = "app.security.lockDurationMinutes";
+    private static final String PASSWORD_MAX_AGE_DAYS_KEY = "app.security.passwordMaxAgeDays";
+    private static final int PASSWORD_MAX_AGE_DAYS_DEFAULT = 90;
+    private static final int PASSWORD_WARN_DAYS = 14;
     private static final int MAX_FAILED_LOGIN_ATTEMPTS_DEFAULT = 5;
     private static final int LOCK_DURATION_MINUTES_DEFAULT = 30;
 
@@ -31,6 +34,7 @@ public class UserService {
     private final RoleRepository roleRepository;
     private final EmailVerificationService emailVerificationService;
     private final AppSettingService appSettingService;
+    private final UserSessionService userSessionService;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     @Value("${app.email-verification.required:false}")
@@ -40,11 +44,13 @@ public class UserService {
     private boolean ipTruncationEnabled;
 
     public UserService(UserRepository userRepository, RoleRepository roleRepository,
-            EmailVerificationService emailVerificationService, AppSettingService appSettingService) {
+            EmailVerificationService emailVerificationService, AppSettingService appSettingService,
+            UserSessionService userSessionService) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.emailVerificationService = emailVerificationService;
         this.appSettingService = appSettingService;
+        this.userSessionService = userSessionService;
     }
 
     public AuthResponse register(RegisterRequest request) {
@@ -55,6 +61,10 @@ public class UserService {
         if (username.isBlank() || email.isBlank() || password.isBlank()) {
             throw new IllegalArgumentException("Username, E-Mail und Passwort sind erforderlich");
         }
+        if (!request.isAcceptedTerms()) {
+            throw new IllegalArgumentException("Die Nutzungsbedingungen müssen akzeptiert werden");
+        }
+        validatePasswordStrength(password);
 
         if (userRepository.existsByUsername(username)) {
             throw new IllegalArgumentException("Benutzername existiert bereits");
@@ -68,7 +78,9 @@ public class UserService {
         user.setUsername(username);
         user.setEmail(email);
         user.setPassword(passwordEncoder.encode(password));
+        user.setPasswordChangedAt(Instant.now());
         user.setEmailVerified(!emailVerificationRequired);
+        user.setTermsAcceptedAt(Instant.now());
 
         Role userRole = roleRepository.findByName("USER")
                 .orElseThrow(() -> new RuntimeException("Role USER not found"));
@@ -80,7 +92,7 @@ public class UserService {
         if (emailVerificationRequired) {
             emailVerificationService.createAndSendVerification(savedUser);
             return new AuthResponse(savedUser.getUsername(), savedUser.getEmail(), false,
-                    "Bitte bestaetige deine E-Mail-Adresse ueber den Link in der E-Mail.", true);
+                    "Bitte bestätige deine E-Mail-Adresse über den Link in der E-Mail.", true);
         }
 
         return new AuthResponse(savedUser.getUsername(), savedUser.getEmail(), true,
@@ -106,13 +118,13 @@ public class UserService {
         if (!passwordEncoder.matches(rawPassword, user.getPassword())) {
             registerFailedLogin(user);
             if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(Instant.now())) {
-                throw new IllegalStateException("Konto ist fuer " + getLockDurationMinutes() + " Minuten gesperrt");
+                throw new IllegalStateException("Konto ist für " + getLockDurationMinutes() + " Minuten gesperrt");
             }
-            throw new IllegalArgumentException("Passwort ist ungueltig");
+            throw new IllegalArgumentException("Passwort ist ungültig");
         }
 
         if (emailVerificationRequired && !user.isEmailVerified()) {
-            throw new IllegalStateException("Bitte bestaetige zuerst deine E-Mail-Adresse");
+            throw new IllegalStateException("Bitte bestätige zuerst deine E-Mail-Adresse");
         }
 
         boolean newIp = normalizedIp != null && !normalizedIp.equals(user.getLastLoginIp())
@@ -133,7 +145,7 @@ public class UserService {
             signals.add("neue IP");
         }
         if (newDevice) {
-            signals.add("neues Geraet");
+            signals.add("neues Gerät");
         }
 
         String loginDetails = buildLoginDetails(normalizedIp, normalizedUserAgent, signals);
@@ -183,8 +195,65 @@ public class UserService {
             throw new IllegalArgumentException("Aktuelles Passwort ist falsch");
         }
 
-        user.setPassword(passwordEncoder.encode(newPassword));
+        applyNewPassword(user, newPassword);
         userRepository.save(user);
+        userSessionService.revokeAll(username);
+    }
+
+    public void applyNewPassword(User user, String newPassword) {
+        rejectReusedPassword(user, newPassword);
+        String previousHash = user.getPassword();
+        if (previousHash != null && !previousHash.isBlank()) {
+            List<String> history = user.getPasswordHistory();
+            history.add(0, previousHash);
+            while (history.size() > 5) {
+                history.remove(history.size() - 1);
+            }
+        }
+        user.setPassword(passwordEncoder.encode(newPassword));
+        user.setPasswordChangedAt(Instant.now());
+    }
+
+    private void rejectReusedPassword(User user, String newPassword) {
+        if (user.getPassword() != null && passwordEncoder.matches(newPassword, user.getPassword())) {
+            throw new IllegalArgumentException("Das neue Passwort darf nicht dem aktuellen entsprechen");
+        }
+        for (String hash : user.getPasswordHistory()) {
+            if (hash != null && passwordEncoder.matches(newPassword, hash)) {
+                throw new IllegalArgumentException("Dieses Passwort wurde bereits verwendet. Bitte wähle ein neues.");
+            }
+        }
+    }
+
+    public record PasswordAgeStatus(
+            boolean enabled,
+            boolean expired,
+            boolean expiresSoon,
+            Instant expiresAt,
+            int maxAgeDays
+    ) {
+    }
+
+    public PasswordAgeStatus passwordAgeStatus(User user) {
+        int maxAgeDays = appSettingService.getInt(
+                PASSWORD_MAX_AGE_DAYS_KEY,
+                PASSWORD_MAX_AGE_DAYS_DEFAULT,
+                0,
+                730);
+        if (maxAgeDays <= 0) {
+            return new PasswordAgeStatus(false, false, false, null, 0);
+        }
+        Instant changedAt = user.getPasswordChangedAt();
+        if (changedAt == null) {
+            changedAt = Instant.now();
+            user.setPasswordChangedAt(changedAt);
+            userRepository.save(user);
+        }
+        Instant expiresAt = changedAt.plus(maxAgeDays, ChronoUnit.DAYS);
+        Instant now = Instant.now();
+        boolean expired = !now.isBefore(expiresAt);
+        boolean expiresSoon = !expired && !now.isBefore(expiresAt.minus(PASSWORD_WARN_DAYS, ChronoUnit.DAYS));
+        return new PasswordAgeStatus(true, expired, expiresSoon, expiresAt, maxAgeDays);
     }
 
     public void changeEmail(String username, String currentPassword, String newEmail) {
@@ -220,7 +289,7 @@ public class UserService {
         }
     }
 
-    private void validatePasswordStrength(String password) {
+    public void validatePasswordStrength(String password) {
         if (password == null || password.length() < 8) {
             throw new IllegalArgumentException("Passwort muss mindestens 8 Zeichen lang sein");
         }

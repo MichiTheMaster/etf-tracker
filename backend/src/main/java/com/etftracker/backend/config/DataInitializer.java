@@ -51,8 +51,10 @@ public class DataInitializer implements CommandLineRunner {
         appSettingService.upsertIfAbsent("app.session.inactivityWarningMinutes", "28");
         appSettingService.upsertIfAbsent("app.security.maxFailedLoginAttempts", "5");
         appSettingService.upsertIfAbsent("app.security.lockDurationMinutes", "30");
+        appSettingService.upsertIfAbsent("app.security.passwordMaxAgeDays", "90");
         appSettingService.upsertIfAbsent("app.portfolio.benchmarkAnnualRatePct", "3.0");
         appSettingService.upsertIfAbsent("market.fallbackPricesEnabled", "true");
+        appSettingService.upsertIfAbsent("market.quoteRefreshMinutes", "5");
 
         cleanupLegacySxrsAlias();
 
@@ -61,6 +63,7 @@ public class DataInitializer implements CommandLineRunner {
         fallbackPrices.put("market.fallbackPrice.VWCE", "116.2");
         fallbackPrices.put("market.fallbackPrice.EUNL", "89.45");
         fallbackPrices.put("market.fallbackPrice.EMIM", "33.8");
+        fallbackPrices.put("market.fallbackPrice.IS3N", "33.8");
         fallbackPrices.put("market.fallbackPrice.SXR8", "520.9");
         fallbackPrices.put("market.fallbackPrice.EXSA", "50.4");
         fallbackPrices.put("market.fallbackPrice.SPYD", "62.7");

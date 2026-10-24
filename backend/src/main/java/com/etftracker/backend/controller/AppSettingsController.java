@@ -1,6 +1,8 @@
 package com.etftracker.backend.controller;
 
+import com.etftracker.backend.dto.MarketQuoteSettingsResponse;
 import com.etftracker.backend.service.AppSettingService;
+import com.etftracker.backend.service.MarketDataService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -16,9 +18,11 @@ public class AppSettingsController {
     private static final String PORTFOLIO_BENCHMARK_RATE_KEY = "app.portfolio.benchmarkAnnualRatePct";
 
     private final AppSettingService appSettingService;
+    private final MarketDataService marketDataService;
 
-    public AppSettingsController(AppSettingService appSettingService) {
+    public AppSettingsController(AppSettingService appSettingService, MarketDataService marketDataService) {
         this.appSettingService = appSettingService;
+        this.marketDataService = marketDataService;
     }
 
     @GetMapping("/inactivity")
@@ -39,5 +43,10 @@ public class AppSettingsController {
     public Map<String, Double> getPortfolioBenchmarkSettings() {
         double annualRatePct = appSettingService.getDouble(PORTFOLIO_BENCHMARK_RATE_KEY, 3.0, 0.0, 20.0);
         return Map.of("annualRatePct", annualRatePct);
+    }
+
+    @GetMapping("/market-quotes")
+    public MarketQuoteSettingsResponse getMarketQuoteSettings() {
+        return marketDataService.quoteRefreshSettings();
     }
 }

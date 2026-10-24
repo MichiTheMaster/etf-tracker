@@ -3,8 +3,8 @@ import PropTypes from 'prop-types';
 import { Alert, Box, Button, Chip, IconButton, InputAdornment, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { apiDelete, apiGet, apiPost } from './apiClient';
-
-const SPECIAL_CHARACTER_PATTERN = /[!@#$%^&*()\-_=+{}|;':,.<>/?[\]"]/;
+import { validatePassword } from './passwordPolicy';
+import { formatDateTime, t, useI18n } from './i18n';
 
 function PasswordAdornment({ visible, onToggle }) {
   return (
@@ -39,14 +39,14 @@ LabeledValue.propTypes = {
 function ProfileDetailsSection({ profile }) {
   return (
     <Paper sx={{ p: 3 }}>
-      <Typography variant='h6' sx={{ mb: 2 }}>Im Backend gespeicherte Daten</Typography>
+      <Typography variant='h6' sx={{ mb: 2 }}>{t('me.backendTitle')}</Typography>
       <Stack spacing={1}>
-        <LabeledValue label='Benutzername:' value={profile?.username || '-'} />
-        <LabeledValue label='E-Mail:' value={profile?.email || '-'} />
-        <LabeledValue label='E-Mail verifiziert:' value={profile?.emailVerified ? 'Ja' : 'Nein'} />
+        <LabeledValue label={t('me.username')} value={profile?.username || t('common.dash')} />
+        <LabeledValue label={t('me.email')} value={profile?.email || t('common.dash')} />
+        <LabeledValue label={t('me.emailVerified')} value={profile?.emailVerified ? t('common.yes') : t('common.no')} />
         <Stack direction='row' spacing={1} alignItems='center' flexWrap='wrap'>
           <Typography component='span'>
-            <Box component='strong'>Rollen:</Box>
+            <Box component='strong'>{t('me.roles')}</Box>
           </Typography>
           {(profile?.roles || []).map((role) => (
             <Chip key={role} label={role} size='small' />
@@ -69,7 +69,7 @@ ProfileDetailsSection.propTypes = {
 function ClientDataSection({ clientData }) {
   return (
     <Paper sx={{ p: 3 }}>
-      <Typography variant='h6' sx={{ mb: 2 }}>Im Browser lokal gespeicherte Daten</Typography>
+      <Typography variant='h6' sx={{ mb: 2 }}>{t('me.clientTitle')}</Typography>
       <Stack spacing={1}>
         <LabeledValue label='sessionAuthenticated:' value={clientData.sessionAuthenticated} />
         <LabeledValue label='sessionUsername:' value={clientData.sessionUsername} />
@@ -107,16 +107,16 @@ function PasswordSection({
 }) {
   return (
     <Paper sx={{ p: 3 }}>
-      <Typography variant='h6' sx={{ mb: 2 }}>Passwort ändern</Typography>
+      <Typography variant='h6' sx={{ mb: 2 }}>{t('me.changePassword')}</Typography>
       <Typography variant='body2' color='text.secondary' sx={{ mb: 2 }}>
-        Mindestens 8 Zeichen · Groß- &amp; Kleinbuchstaben · Zahl · Sonderzeichen
+        {t('me.passwordRules')}
       </Typography>
       {pwError && <Alert severity='error' sx={{ mb: 2 }}>{pwError}</Alert>}
       {pwSuccess && <Alert severity='success' sx={{ mb: 2 }}>{pwSuccess}</Alert>}
       <Box component='form' onSubmit={onSubmit}>
         <Stack spacing={2}>
           <TextField
-            label='Aktuelles Passwort'
+            label={t('me.currentPassword')}
             type={showCurrent ? 'text' : 'password'}
             value={pwCurrent}
             onChange={onCurrentChange}
@@ -129,7 +129,7 @@ function PasswordSection({
             }}
           />
           <TextField
-            label='Neues Passwort'
+            label={t('me.newPassword')}
             type={showNew ? 'text' : 'password'}
             value={pwNew}
             onChange={onNewChange}
@@ -144,13 +144,13 @@ function PasswordSection({
             }}
           />
           <TextField
-            label='Neues Passwort bestätigen'
+            label={t('me.confirmNewPassword')}
             type={showConfirm ? 'text' : 'password'}
             value={pwConfirm}
             onChange={onConfirmChange}
             required
             size='small'
-            helperText={pwConfirm && pwNew !== pwConfirm ? 'Passwörter stimmen nicht überein' : ''}
+            helperText={pwConfirm && pwNew !== pwConfirm ? t('auth.passwordMismatch') : ''}
             error={!!pwConfirm && pwNew !== pwConfirm}
             slotProps={{
               input: {
@@ -164,7 +164,7 @@ function PasswordSection({
             disabled={pwLoading || !!validatePw(pwNew) || pwNew !== pwConfirm || !pwCurrent}
             sx={{ alignSelf: 'flex-start' }}
           >
-            {pwLoading ? 'Wird geändert…' : 'Passwort ändern'}
+            {pwLoading ? t('me.changing') : t('me.changePasswordAction')}
           </Button>
         </Stack>
       </Box>
@@ -205,13 +205,13 @@ function EmailSection({
 }) {
   return (
     <Paper sx={{ p: 3 }}>
-      <Typography variant='h6' sx={{ mb: 2 }}>E-Mail-Adresse ändern</Typography>
+      <Typography variant='h6' sx={{ mb: 2 }}>{t('me.changeEmail')}</Typography>
       {emailError && <Alert severity='error' sx={{ mb: 2 }}>{emailError}</Alert>}
       {emailSuccess && <Alert severity='success' sx={{ mb: 2 }}>{emailSuccess}</Alert>}
       <Box component='form' onSubmit={onSubmit}>
         <Stack spacing={2}>
           <TextField
-            label='Neue E-Mail-Adresse'
+            label={t('me.newEmail')}
             type='email'
             value={emailNew}
             onChange={onEmailChange}
@@ -221,7 +221,7 @@ function EmailSection({
             error={!!emailNew && !!validateEmail(emailNew)}
           />
           <TextField
-            label='Passwort bestätigen'
+            label={t('me.confirmPassword')}
             type={showEmailPassword ? 'text' : 'password'}
             value={emailPassword}
             onChange={onPasswordChange}
@@ -239,7 +239,7 @@ function EmailSection({
             disabled={emailLoading || !!validateEmail(emailNew) || !emailPassword || !emailNew}
             sx={{ alignSelf: 'flex-start' }}
           >
-            {emailLoading ? 'Wird geändert…' : 'E-Mail ändern'}
+            {emailLoading ? t('me.changing') : t('me.changeEmailAction')}
           </Button>
         </Stack>
       </Box>
@@ -261,42 +261,45 @@ EmailSection.propTypes = {
 };
 
 function SessionsSection({ sessions, sessionsLoading, sessionMessage, onRefresh, onRevokeOthers, onRevokeSession }) {
+  const hasOtherSessions = sessions.some((session) => !session.current);
   return (
     <Paper sx={{ p: 3 }}>
       <Stack direction='row' spacing={2} alignItems='center' sx={{ mb: 2 }}>
-        <Typography variant='h6' sx={{ flex: 1 }}>Aktive Sessions</Typography>
-        <Button size='small' variant='outlined' onClick={onRefresh}>Aktualisieren</Button>
-        <Button size='small' variant='contained' color='warning' onClick={onRevokeOthers}>
-          Alle anderen beenden
-        </Button>
+        <Typography variant='h6' sx={{ flex: 1 }}>{t('me.sessionsTitle')}</Typography>
+        <Button size='small' variant='outlined' onClick={onRefresh}>{t('common.refresh')}</Button>
+        {hasOtherSessions && (
+          <Button size='small' variant='contained' color='warning' onClick={onRevokeOthers}>
+            {t('me.otherDevices')}
+          </Button>
+        )}
       </Stack>
       {sessionMessage && <Alert severity='info' sx={{ mb: 2 }}>{sessionMessage}</Alert>}
       {sessionsLoading ? (
-        <Typography color='text.secondary'>Sessions werden geladen...</Typography>
+        <Typography color='text.secondary'>{t('me.sessionsLoading')}</Typography>
       ) : (
         <Table size='small'>
           <TableHead>
             <TableRow>
-              <TableCell>Status</TableCell>
-              <TableCell>Letzte Aktivität</TableCell>
-              <TableCell>Ablauf</TableCell>
-              <TableCell>User-Agent</TableCell>
-              <TableCell>IP</TableCell>
-              <TableCell align='right'>Aktion</TableCell>
+              <TableCell>{t('me.status')}</TableCell>
+              <TableCell>{t('me.lastSeen')}</TableCell>
+              <TableCell>{t('me.expires')}</TableCell>
+              <TableCell>{t('me.browser')}</TableCell>
+              <TableCell>{t('me.ip')}</TableCell>
+              <TableCell align='right'>{t('common.action')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {sessions.map((session) => (
               <TableRow key={session.id}>
                 <TableCell>
-                  {session.current ? <Chip size='small' color='success' label='Aktuell' /> : 'Aktiv'}
+                  {session.current ? <Chip size='small' color='success' label={t('me.current')} /> : t('me.active')}
                 </TableCell>
-                <TableCell>{new Date(session.lastSeenAt).toLocaleString('de-DE')}</TableCell>
-                <TableCell>{new Date(session.expiresAt).toLocaleString('de-DE')}</TableCell>
+                <TableCell>{formatDateTime(session.lastSeenAt)}</TableCell>
+                <TableCell>{formatDateTime(session.expiresAt)}</TableCell>
                 <TableCell sx={{ maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {session.userAgent || '-'}
+                  {session.userAgent || t('common.dash')}
                 </TableCell>
-                <TableCell>{session.ipAddress || '-'}</TableCell>
+                <TableCell>{session.ipAddress || t('common.dash')}</TableCell>
                 <TableCell align='right'>
                   <Button
                     size='small'
@@ -304,7 +307,7 @@ function SessionsSection({ sessions, sessionsLoading, sessionMessage, onRefresh,
                     variant={session.current ? 'outlined' : 'text'}
                     onClick={() => onRevokeSession(session.id, session.current)}
                   >
-                    {session.current ? 'Abmelden' : 'Beenden'}
+                    {session.current ? t('me.logout') : t('me.end')}
                   </Button>
                 </TableCell>
               </TableRow>
@@ -312,7 +315,7 @@ function SessionsSection({ sessions, sessionsLoading, sessionMessage, onRefresh,
             {sessions.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6}>
-                  <Typography color='text.secondary'>Keine aktiven Sessions gefunden.</Typography>
+                  <Typography color='text.secondary'>{t('me.noSessions')}</Typography>
                 </TableCell>
               </TableRow>
             )}
@@ -340,19 +343,15 @@ SessionsSection.propTypes = {
 };
 
 function validatePw(pw) {
-  if (!pw || pw.length < 8) return 'Mindestens 8 Zeichen';
-  if (!/[A-Z]/.test(pw)) return 'Mindestens ein Großbuchstabe';
-  if (!/[a-z]/.test(pw)) return 'Mindestens ein Kleinbuchstabe';
-  if (!/\d/.test(pw)) return 'Mindestens eine Zahl';
-  if (!SPECIAL_CHARACTER_PATTERN.test(pw)) return 'Mindestens ein Sonderzeichen';
-  return '';
+  return validatePassword(pw);
 }
 
 function validateEmail(email) {
-  return /^[A-Za-z0-9+_.-]+@([A-Za-z0-9.-]+)$/.test(email) ? '' : 'Ungültige E-Mail-Adresse';
+  return /^[A-Za-z0-9+_.-]+@([A-Za-z0-9.-]+)$/.test(email) ? '' : t('me.invalidEmail');
 }
 
 export default function UserData({ currentUser, refreshCurrentUser, onForcedLogout }) {
+  const { t } = useI18n();
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -377,7 +376,7 @@ export default function UserData({ currentUser, refreshCurrentUser, onForcedLogo
 
   const loadProfile = async () => {
     const payload = await apiGet('/api/me', {
-      fallbackMessage: 'Profildaten konnten nicht geladen werden.'
+      fallbackMessage: t('me.profileFailed')
     });
     setProfile(payload);
   };
@@ -387,7 +386,7 @@ export default function UserData({ currentUser, refreshCurrentUser, onForcedLogo
     setEmailError('');
     setEmailSuccess('');
     if (!emailPassword) {
-      setEmailError('Passwort ist erforderlich');
+      setEmailError(t('me.passwordRequired'));
       return;
     }
     const emailValidationError = validateEmail(emailNew);
@@ -401,9 +400,9 @@ export default function UserData({ currentUser, refreshCurrentUser, onForcedLogo
         currentPassword: emailPassword,
         newEmail: emailNew
       }, {
-        fallbackMessage: 'Fehler beim Ändern der E-Mail'
+        fallbackMessage: t('me.emailChangeFailed')
       });
-      setEmailSuccess('E-Mail erfolgreich geändert');
+      setEmailSuccess(t('me.emailChanged'));
       setEmailNew('');
       setEmailPassword('');
       setTimeout(() => {
@@ -411,7 +410,7 @@ export default function UserData({ currentUser, refreshCurrentUser, onForcedLogo
         refreshProfile().catch(() => {});
       }, 1000);
     } catch (error) {
-      setEmailError(error.message || 'Netzwerkfehler');
+      setEmailError(error.message || t('common.networkError'));
     } finally {
       setEmailLoading(false);
     }
@@ -427,7 +426,7 @@ export default function UserData({ currentUser, refreshCurrentUser, onForcedLogo
       return;
     }
     if (pwNew !== pwConfirm) {
-      setPwError('Neues Passwort und Bestätigung stimmen nicht überein');
+      setPwError(t('auth.passwordMismatch'));
       return;
     }
     setPwLoading(true);
@@ -436,14 +435,15 @@ export default function UserData({ currentUser, refreshCurrentUser, onForcedLogo
         currentPassword: pwCurrent,
         newPassword: pwNew
       }, {
-        fallbackMessage: 'Fehler beim Ändern des Passworts'
+        fallbackMessage: t('me.passwordChangeFailed')
       });
-      setPwSuccess('Passwort erfolgreich geändert');
+      setPwSuccess(t('me.passwordChanged'));
       setPwCurrent('');
       setPwNew('');
       setPwConfirm('');
+      onForcedLogout?.();
     } catch (error) {
-      setPwError(error.message || 'Netzwerkfehler');
+      setPwError(error.message || t('common.networkError'));
     } finally {
       setPwLoading(false);
     }
@@ -462,7 +462,7 @@ export default function UserData({ currentUser, refreshCurrentUser, onForcedLogo
   useEffect(() => {
     loadProfile()
       .catch((loadError) => {
-        setError(loadError?.message || 'Profildaten konnten nicht geladen werden.');
+        setError(loadError?.message || t('me.profileFailed'));
       })
       .finally(() => {
         setIsLoading(false);
@@ -473,7 +473,7 @@ export default function UserData({ currentUser, refreshCurrentUser, onForcedLogo
     setSessionsLoading(true);
     try {
       const data = await apiGet('/api/me/sessions', {
-        fallbackMessage: 'Sessions konnten nicht geladen werden.'
+        fallbackMessage: t('me.sessionsFailed')
       });
       setSessions(Array.isArray(data) ? data : []);
     } catch {
@@ -491,17 +491,17 @@ export default function UserData({ currentUser, refreshCurrentUser, onForcedLogo
     setSessionMessage('');
     try {
       await apiDelete(`/api/me/sessions/${encodeURIComponent(sessionId)}`, {
-        fallbackMessage: 'Session konnte nicht beendet werden.'
+        fallbackMessage: t('me.sessionEndFailed')
       });
       if (isCurrent) {
         onForcedLogout?.();
         globalThis.location.hash = '#/login';
         return;
       }
-      setSessionMessage('Session wurde beendet.');
+      setSessionMessage(t('me.sessionEnded'));
       await loadSessions();
     } catch {
-      setSessionMessage('Session konnte nicht beendet werden.');
+      setSessionMessage(t('me.sessionEndFailed'));
     }
   };
 
@@ -509,28 +509,28 @@ export default function UserData({ currentUser, refreshCurrentUser, onForcedLogo
     setSessionMessage('');
     try {
       await apiDelete('/api/me/sessions/others', {
-        fallbackMessage: 'Andere Sessions konnten nicht beendet werden.'
+        fallbackMessage: t('me.othersFailed')
       });
-      setSessionMessage('Alle anderen Sessions wurden beendet.');
+      setSessionMessage(t('me.othersEnded'));
       await loadSessions();
     } catch {
-      setSessionMessage('Andere Sessions konnten nicht beendet werden.');
+      setSessionMessage(t('me.othersFailed'));
     }
   };
 
   const clientData = useMemo(() => {
     if (globalThis.window === undefined) {
-      return { sessionAuthenticated: '-', sessionUsername: '-', forceLoggedOut: '-' };
+      return { sessionAuthenticated: t('common.dash'), sessionUsername: t('common.dash'), forceLoggedOut: t('common.dash') };
     }
     return {
-      sessionAuthenticated: localStorage.getItem('sessionAuthenticated') || '(nicht gesetzt)',
-      sessionUsername: localStorage.getItem('sessionUsername') || '(nicht gesetzt)',
-      forceLoggedOut: localStorage.getItem('forceLoggedOut') || '(nicht gesetzt)'
+      sessionAuthenticated: localStorage.getItem('sessionAuthenticated') || t('me.notSet'),
+      sessionUsername: localStorage.getItem('sessionUsername') || t('me.notSet'),
+      forceLoggedOut: localStorage.getItem('forceLoggedOut') || t('me.notSet')
     };
   }, []);
 
   if (isLoading) {
-    return <Paper sx={{ p: 3 }}><Typography>Meine Daten werden geladen...</Typography></Paper>;
+    return <Paper sx={{ p: 3 }}><Typography>{t('me.loading')}</Typography></Paper>;
   }
 
   if (error) {
@@ -541,8 +541,21 @@ export default function UserData({ currentUser, refreshCurrentUser, onForcedLogo
     );
   }
 
+  const passwordExpired = Boolean(profile?.passwordExpired || currentUser?.passwordExpired);
+  const passwordExpiresSoon = Boolean(profile?.passwordExpiresSoon || currentUser?.passwordExpiresSoon);
+
   return (
     <Stack spacing={2}>
+      {passwordExpired && (
+        <Alert severity="error">
+          {t('me.passwordExpired')}
+        </Alert>
+      )}
+      {!passwordExpired && passwordExpiresSoon && (
+        <Alert severity="warning">
+          {t('me.passwordExpiresSoon')}
+        </Alert>
+      )}
       <ProfileDetailsSection profile={profile} />
       <ClientDataSection clientData={clientData} />
       <PasswordSection
@@ -598,6 +611,8 @@ UserData.propTypes = {
     username: PropTypes.string,
     email: PropTypes.string,
     emailVerified: PropTypes.bool,
+    passwordExpired: PropTypes.bool,
+    passwordExpiresSoon: PropTypes.bool,
     roles: PropTypes.arrayOf(PropTypes.string)
   }),
   refreshCurrentUser: PropTypes.func,

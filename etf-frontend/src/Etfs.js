@@ -18,6 +18,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TableSortLabel,
@@ -31,12 +32,16 @@ import {
   ETF_CATALOG,
   fetchRiskMetrics,
   fetchLivePrices,
+  fetchMarketQuoteSettings,
   formatCurrency,
+  quoteSourceLabel,
   searchEtfPool
 } from "./simulatorStorage";
 import { PortfolioAPI } from "./portfolioAPI";
+import QuoteRefreshStatus, { DEFAULT_QUOTE_REFRESH_SECONDS } from "./QuoteRefreshStatus";
+import { useQuoteRefreshTimer } from "./useQuoteRefreshTimer";
+import { formatDateTime, useI18n } from "./i18n";
 
-const AUTO_REFRESH_SECONDS = 60;
 const MIN_POOL_QUERY_LENGTH = 1;
 const MAX_POOL_RESULTS = 20;
 
@@ -44,6 +49,7 @@ const ETF_ISIN_BY_SYMBOL = {
   VWCE: "IE00BK5BQT80",
   EUNL: "IE00B4L5Y983",
   EMIM: "IE00BKM4GZ66",
+  IS3N: "IE00BKM4GZ66",
   SXR8: "IE00B5BMR087",
   EXSA: "DE0002635307",
   SPYD: "IE00B6YX5D40",
@@ -56,6 +62,7 @@ const ETF_ISIN_BY_SYMBOL = {
 };
 
 export default function Etfs() {
+  const { t } = useI18n();
   const [state, setState] = useState(null);
   const [quantities, setQuantities] = useState({});
   const [error, setError] = useState("");
@@ -63,7 +70,10 @@ export default function Etfs() {
   const [riskMetrics, setRiskMetrics] = useState({});
   const [riskStatuses, setRiskStatuses] = useState({});
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [countdown, setCountdown] = useState(AUTO_REFRESH_SECONDS);
+  const [refreshSeconds, setRefreshSeconds] = useState(DEFAULT_QUOTE_REFRESH_SECONDS);
+  const [firstRefreshAt, setFirstRefreshAt] = useState(null);
+  const [quotesFetchedAt, setQuotesFetchedAt] = useState(null);
+  const { remaining, deadlineMs, awaitingDelayedTick, applySettings, armAfterFetch, consumeExpire } = useQuoteRefreshTimer();
   const [isLoading, setIsLoading] = useState(true);
   const [selectedSymbols, setSelectedSymbols] = useState(DEFAULT_ETF_SYMBOLS);
   const [customEtfs, setCustomEtfs] = useState([]);
@@ -77,6 +87,7 @@ export default function Etfs() {
   const [selectedAddedAt, setSelectedAddedAt] = useState({});
   const [removeDialogSymbol, setRemoveDialogSymbol] = useState("");
   const isRefreshingRef = useRef(false);
+  const refreshQuotesRef = useRef(null);
 
   const catalog = useMemo(() => [...ETF_CATALOG, ...customEtfs], [customEtfs]);
 
@@ -202,7 +213,7 @@ export default function Etfs() {
         setSelectedSymbols(nextSelectedSymbols.length > 0 ? nextSelectedSymbols : DEFAULT_ETF_SYMBOLS);
         setSelectedAddedAt(preferences?.selectedAddedAt || {});
       } catch (err) {
-        setError(err?.message || "Portfolio konnte nicht geladen werden.");
+        setError(err?.message || t("etfs.loadFailed"));
         console.error(err);
       } finally {
         setIsLoading(false);
@@ -218,26 +229,9 @@ export default function Etfs() {
         setSelectedAddedAt(response.selectedAddedAt);
       }
     } catch (persistError) {
-      setError(persistError?.message || "ETF-Auswahl konnte nicht gespeichert werden.");
+      setError(persistError?.message || t("etfs.prefsSaveFailed"));
       throw persistError;
     }
-  }, []);
-
-  const formatAddedAt = useCallback((value) => {
-    if (!value) {
-      return "-";
-    }
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      return "-";
-    }
-    return parsed.toLocaleString("de-DE", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit"
-    });
   }, []);
 
   const refreshQuotes = useCallback(async (forceRefresh) => {
@@ -247,46 +241,56 @@ export default function Etfs() {
 
     isRefreshingRef.current = true;
     setIsRefreshing(true);
+    const symbols = visibleEtfs.map((etf) => etf.symbol);
     try {
-      const symbols = visibleEtfs.map((etf) => etf.symbol);
-      const [quoteData, riskResult] = await Promise.all([
-        fetchLivePrices(forceRefresh, symbols),
-        fetchRiskMetrics(symbols)
-      ]);
+      const quoteData = await fetchLivePrices(forceRefresh, symbols);
       if (quoteData) {
         setQuotes(quoteData);
+        setQuotesFetchedAt(Date.now());
       }
-      setRiskMetrics(riskResult?.data || {});
-      setRiskStatuses(riskResult?.statusBySymbol || {});
-      setCountdown(AUTO_REFRESH_SECONDS);
     } finally {
+      armAfterFetch(forceRefresh);
       isRefreshingRef.current = false;
       setIsRefreshing(false);
     }
-  }, [visibleEtfs]);
+    fetchRiskMetrics(symbols).then((riskResult) => {
+      setRiskMetrics(riskResult?.data || {});
+      setRiskStatuses(riskResult?.statusBySymbol || {});
+    });
+  }, [visibleEtfs, armAfterFetch]);
+
+  refreshQuotesRef.current = refreshQuotes;
 
   useEffect(() => {
-    refreshQuotes(false);
-  }, [refreshQuotes]);
-
-  useEffect(() => {
-    if (isRefreshing) {
-      return;
-    }
-
-    if (countdown <= 0) {
-      refreshQuotes(false);
-      return;
-    }
-
-    const timeoutId = setTimeout(() => {
-      if (!document.hidden) {
-        setCountdown((previous) => Math.max(previous - 1, 0));
+    let cancelled = false;
+    fetchMarketQuoteSettings().then((status) => {
+      if (cancelled) {
+        return;
       }
-    }, 1000);
+      setRefreshSeconds(status.quoteRefreshSeconds);
+      setFirstRefreshAt(status.firstRefreshAt);
+      applySettings(status.firstRefreshAt, status.quoteRefreshSeconds);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [applySettings]);
 
-    return () => clearTimeout(timeoutId);
-  }, [countdown, isRefreshing, refreshQuotes]);
+  const visibleSymbolsKey = visibleEtfs.map((etf) => etf.symbol).join(",");
+
+  useEffect(() => {
+    refreshQuotesRef.current?.(false);
+  }, [visibleSymbolsKey]);
+
+  useEffect(() => {
+    if (remaining > 0 || isRefreshing) {
+      return;
+    }
+    if (!consumeExpire()) {
+      return;
+    }
+    refreshQuotesRef.current?.(false);
+  }, [remaining, isRefreshing, consumeExpire]);
 
   const pendingTotal = useMemo(
     () =>
@@ -355,7 +359,7 @@ export default function Etfs() {
     if (hasInitialPoolPrice) {
       setQuotes((prev) => ({
         ...(prev || {}),
-        [symbol]: { symbol, price: initialPoolPrice, source: "live" }
+        [symbol]: { symbol, price: initialPoolPrice, source: "delayed" }
       }));
     }
 
@@ -373,12 +377,12 @@ export default function Etfs() {
   const handleRemoveEtf = (symbol) => {
     const shares = state?.holdings?.[symbol]?.shares || 0;
     if (shares > 0) {
-      setError("ETF kann nicht entfernt werden, solange Anteile im Portfolio vorhanden sind.");
+      setError(t("etfs.removeHeld"));
       return;
     }
 
     if (selectedSymbols.length <= 1) {
-      setError("Mindestens ein ETF muss in der Liste verbleiben.");
+      setError(t("etfs.removeLast"));
       return;
     }
 
@@ -419,11 +423,11 @@ export default function Etfs() {
   };
 
   if (isLoading) {
-    return <Paper sx={{ p: 3 }}><Typography>Portfolio wird geladen...</Typography></Paper>;
+    return <Paper sx={{ p: 3 }}><Typography>{t("etfs.loading")}</Typography></Paper>;
   }
 
   if (!state) {
-    return <Paper sx={{ p: 3 }}><Typography color="error">Portfolio konnte nicht geladen werden.</Typography></Paper>;
+    return <Paper sx={{ p: 3 }}><Typography color="error">{t("etfs.loadFailed")}</Typography></Paper>;
   }
 
   const getRiskTone = (riskLevel) => {
@@ -437,7 +441,7 @@ export default function Etfs() {
   };
 
   return (
-    <Paper sx={{ p: 3 }}>
+    <Paper sx={{ p: { xs: 2, md: 3 }, overflow: "hidden" }}>
       <Typography
         variant="h4"
         sx={{
@@ -446,19 +450,19 @@ export default function Etfs() {
           letterSpacing: "0.01em"
         }}
       >
-        ETF Liste
+        {t("etfs.title")}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Spielgeld verfuegbar: {formatCurrency(state.cash)} | Nach Eingabe: {formatCurrency(remainingCashAfterInput)}
+        {t("etfs.cashLine", { cash: formatCurrency(state.cash), after: formatCurrency(remainingCashAfterInput) })}
       </Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
-        Zeilen mit gruenem Hintergrund enthalten ETFs, die bereits im Portfolio gehalten werden.
+        {t("etfs.heldHint")}
       </Typography>
 
       <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25, mb: 2 }}>
         <Autocomplete
           size="small"
-          sx={{ minWidth: 360, maxWidth: 760 }}
+          sx={{ width: "100%", maxWidth: 760, minWidth: 0 }}
           options={poolDisplayResults}
           loading={isPoolLoading}
           inputValue={poolQuery}
@@ -472,24 +476,24 @@ export default function Etfs() {
             if (typeof option === "string") {
               return option;
             }
-            return `${option.symbol || "-"} - ${option.name || ""}`;
+            return `${option.symbol || t("common.dash")} - ${option.name || ""}`;
           }}
           isOptionEqualToValue={(option, value) => option.symbol === value.symbol}
           noOptionsText={
             !poolQuery.trim() || poolQuery.trim().length < MIN_POOL_QUERY_LENGTH
-              ? "Mindestens 1 Zeichen eingeben"
-              : "Keine ETFs gefunden"
+              ? t("etfs.minChars")
+              : t("etfs.noResults")
           }
           renderOption={(props, option) => {
-            const symbol = option.symbol?.toUpperCase() || "-";
+            const symbol = option.symbol?.toUpperCase() || t("common.dash");
             return (
-              <Box component="li" {...props} key={`${symbol}-${option.exchange || "-"}`}>
+              <Box component="li" {...props} key={`${symbol}-${option.exchange || t("common.dash")}`}>
                 <Box sx={{ display: "flex", flexDirection: "column" }}>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
                     {symbol} - {option.name}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {option.exchange || "-"} | {option.currency || "-"}
+                    {option.exchange || t("common.dash")} | {option.currency || t("common.dash")}
                   </Typography>
                 </Box>
               </Box>
@@ -498,12 +502,12 @@ export default function Etfs() {
           renderInput={(params) => (
             <TextField
               {...params}
-              label="ETF im oeffentlichen Pool suchen"
-              placeholder="z. B. iShares MSCI World"
+              label={t("etfs.search")}
+              placeholder={t("etfs.searchPlaceholder")}
               helperText={
                 poolQuery.trim().length > 0 && poolQuery.trim().length < MIN_POOL_QUERY_LENGTH
-                  ? "Bitte mindestens 1 Zeichen eingeben"
-                  : "Waehle einen Treffer aus, um ihn zur Liste hinzuzufuegen"
+                  ? t("etfs.minCharsHint")
+                  : t("etfs.searchHelp")
               }
               InputProps={{
                 ...params.InputProps,
@@ -519,47 +523,51 @@ export default function Etfs() {
         />
 
         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-          <Tooltip title="UCITS = EU-regulierter Fondsstandard mit einheitlichen Schutzregeln fuer Anleger.">
+          <Tooltip title={t("etfs.ucitsHint")}>
             <FormControlLabel
               control={<Checkbox size="small" checked={filterUcits} onChange={(e) => setFilterUcits(e.target.checked)} />}
-              label="Nur UCITS"
+              label={t("etfs.ucits")}
             />
           </Tooltip>
-          <Tooltip title="Zeigt nur ETFs, die in Euro notieren.">
+          <Tooltip title={t("etfs.eurHint")}>
             <FormControlLabel
               control={<Checkbox size="small" checked={filterEur} onChange={(e) => setFilterEur(e.target.checked)} />}
-              label="Nur EUR"
+              label={t("etfs.eur")}
             />
           </Tooltip>
-          <Tooltip title="Filtert auf Boersenplaetze XETRA/FRA (Frankfurt).">
+          <Tooltip title={t("etfs.xetraHint")}>
             <FormControlLabel
               control={<Checkbox size="small" checked={filterXetra} onChange={(e) => setFilterXetra(e.target.checked)} />}
-              label="Nur XETRA/FRA"
+              label={t("etfs.xetra")}
             />
           </Tooltip>
         </Box>
 
         {poolQuery.trim() && poolDisplayResults.length > 0 && (
           <Typography variant="body2" color="text.secondary">
-            {poolDisplayResults.length} Treffer. Auswahl ueber das Suchfeld.
+            {t("etfs.hitCount", { count: poolDisplayResults.length })}
           </Typography>
         )}
       </Box>
 
-      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 2, mb: 2 }}>
         <Button
           variant="outlined"
           size="small"
           onClick={() => refreshQuotes(true)}
           disabled={isRefreshing}
         >
-          {isRefreshing ? "Aktualisiere..." : "Aktualisieren"}
+          {isRefreshing ? t("common.refreshing") : t("common.refresh")}
         </Button>
-        <Typography variant="body2" color="text.secondary">
-          {isRefreshing
-            ? "Auto-Refresh laeuft..."
-            : `Naechster Auto-Refresh in ${countdown}s`}
-        </Typography>
+        <QuoteRefreshStatus
+          isRefreshing={isRefreshing}
+          countdown={remaining}
+          quotes={quotes}
+          awaitingDelayedTick={awaitingDelayedTick}
+          fallbackAsOf={quotesFetchedAt}
+          refreshSeconds={refreshSeconds}
+          nextAtMs={deadlineMs}
+        />
       </Box>
 
       {error && (
@@ -572,59 +580,60 @@ export default function Etfs() {
         </Alert>
       )}
 
+      <TableContainer sx={{ overflowX: "auto" }}>
       <Table size="small">
         <TableHead>
           <TableRow sx={{ backgroundColor: "#f5f5f5", "&:hover": { backgroundColor: "#f5f5f5" } }}>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "symbol" ? sortConfig.direction : false}>
-              <Tooltip title="Zum Sortieren klicken (auf/absteigend)">
+              <Tooltip title={t("common.sortHint")}>
                 <TableSortLabel
                   active={sortConfig.field === "symbol"}
                   direction={sortConfig.field === "symbol" ? sortConfig.direction : "asc"}
                   onClick={() => handleSort("symbol")}
                 >
-                  Symbol
+                  {t("etfs.symbol")}
                 </TableSortLabel>
               </Tooltip>
             </TableCell>
-            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>ISIN</TableCell>
+            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>{t("etfs.isin")}</TableCell>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "name" ? sortConfig.direction : false}>
-              <Tooltip title="Zum Sortieren klicken (auf/absteigend)">
+              <Tooltip title={t("common.sortHint")}>
                 <TableSortLabel
                   active={sortConfig.field === "name"}
                   direction={sortConfig.field === "name" ? sortConfig.direction : "asc"}
                   onClick={() => handleSort("name")}
                 >
-                  Name
+                  {t("etfs.name")}
                 </TableSortLabel>
               </Tooltip>
             </TableCell>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "price" ? sortConfig.direction : false}>
-              <Tooltip title="Zum Sortieren klicken (auf/absteigend)">
+              <Tooltip title={t("common.sortHint")}>
                 <TableSortLabel
                   active={sortConfig.field === "price"}
                   direction={sortConfig.field === "price" ? sortConfig.direction : "asc"}
                   onClick={() => handleSort("price")}
                 >
-                  Preis
+                  {t("etfs.price")}
                 </TableSortLabel>
               </Tooltip>
             </TableCell>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>
-              <Tooltip title="TER (Total Expense Ratio): laufende Fondskosten pro Jahr in %.">
-                <span>TER</span>
+              <Tooltip title={t("etfs.terHint")}>
+                <span>{t("etfs.ter")}</span>
               </Tooltip>
             </TableCell>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333", minWidth: 210 }}>
-              <Tooltip title="Kompakter Risiko- und Volatilitaets-Tracker auf Basis der letzten 90 verfuegbaren Handelstage. Er kombiniert annualisierte Volatilitaet und aktuellen Drawdown zu einem Score von 0 bis 100.">
-                <span>Volatilitaets-Tracker</span>
+              <Tooltip title={t("etfs.riskHint")}>
+                <span>{t("etfs.risk")}</span>
               </Tooltip>
             </TableCell>
-            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>Anzahl</TableCell>
-            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>Summe</TableCell>
-            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>Hinzugefuegt</TableCell>
-            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>Kaufen</TableCell>
+            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>{t("etfs.quantity")}</TableCell>
+            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>{t("etfs.sum")}</TableCell>
+            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>{t("etfs.added")}</TableCell>
+            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>{t("etfs.buy")}</TableCell>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333", textAlign: "center" }}>
-              <Tooltip title="Aus Liste entfernen">
+              <Tooltip title={t("etfs.remove")}>
                 <DeleteOutlineIcon sx={{ fontSize: 18, verticalAlign: "middle", color: "text.secondary" }} />
               </Tooltip>
             </TableCell>
@@ -636,7 +645,7 @@ export default function Etfs() {
             const sharesInPortfolio = state?.holdings?.[etf.symbol]?.shares || 0;
             const quotePrice = quotes?.[etf.symbol]?.price;
             const quoteTer = quotes?.[etf.symbol]?.ter;
-            const isin = ETF_ISIN_BY_SYMBOL[etf.symbol] || "-";
+            const isin = ETF_ISIN_BY_SYMBOL[etf.symbol] || t("common.dash");
             const price = quotePrice > 0 ? quotePrice : etf.price;
             const terValue = quoteTer > 0 ? quoteTer : etf.ter;
             const riskEntry = riskMetrics?.[etf.symbol] || null;
@@ -662,7 +671,7 @@ export default function Etfs() {
                   {etf.symbol}
                   {sharesInPortfolio > 0 && (
                     <Chip
-                      label="im Portfolio"
+                      label={t("etfs.inPortfolio")}
                       size="small"
                       color="success"
                       variant="outlined"
@@ -676,21 +685,23 @@ export default function Etfs() {
                   {formatCurrency(price)}
                   <Tooltip
                     title={
-                      (quotes?.[etf.symbol]?.source ?? etf.source ?? "fallback") === "live"
-                        ? "Live-Daten vom Kursanbieter"
+                      (quotes?.[etf.symbol]?.source ?? etf.source ?? "fallback") === "delayed"
+                        ? t("etfs.delayedHint")
                         : (quotes?.[etf.symbol]?.source ?? etf.source ?? "fallback") === "cached"
-                        ? "Zwischengespeicherter Kurs (kurzzeitig)"
+                        ? t("etfs.cachedHint")
                         : (quotes?.[etf.symbol]?.source ?? etf.source ?? "fallback") === "custom"
-                        ? "Manuell hinzugefuegter ETF"
-                        : "Fallback-Daten (nicht aktuell)"
+                        ? t("etfs.customHint")
+                        : t("etfs.fallbackHint")
                     }
                   >
                     <Chip
-                      label={quotes?.[etf.symbol]?.source ?? etf.source ?? "fallback"}
+                      label={quoteSourceLabel(quotes?.[etf.symbol]?.source ?? etf.source ?? "fallback")}
                       size="small"
                       color={
                         quotes?.[etf.symbol]?.source === "live"
                           ? "success"
+                          : quotes?.[etf.symbol]?.source === "delayed"
+                          ? "info"
                           : quotes?.[etf.symbol]?.source === "cached"
                           ? "primary"
                           : etf.source === "custom"
@@ -701,11 +712,16 @@ export default function Etfs() {
                     />
                   </Tooltip>
                 </TableCell>
-                <TableCell>{terValue > 0 ? `${terValue}%` : "-"}</TableCell>
+                <TableCell>{terValue > 0 ? `${terValue}%` : t("common.dash")}</TableCell>
                 <TableCell>
                   {riskEntry ? (
                     <Tooltip
-                      title={`${riskEntry.riskLevel} | Volatilitaet ${riskEntry.volatilityPct}% | Drawdown ${riskEntry.drawdownPct}% | ${riskEntry.sampleDays} Handelstage`}
+                      title={t("etfs.riskTooltip", {
+                        level: riskEntry.riskLevel,
+                        vola: riskEntry.volatilityPct,
+                        drawdown: riskEntry.drawdownPct,
+                        days: riskEntry.sampleDays
+                      })}
                     >
                       <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, minWidth: 180 }}>
                         <Box
@@ -725,20 +741,18 @@ export default function Etfs() {
                           />
                         </Box>
                         <Typography variant="caption" color={riskTone.textColor} sx={{ fontWeight: 700 }}>
-                          {riskEntry.riskLevel} ({riskScore}/100)
+                          {t("etfs.riskScore", { level: riskEntry.riskLevel, score: riskScore })}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          Vola {riskEntry.volatilityPct}% | DD {riskEntry.drawdownPct}%
+                          {t("etfs.riskCaption", { vola: riskEntry.volatilityPct, drawdown: riskEntry.drawdownPct })}
                         </Typography>
                       </Box>
                     </Tooltip>
                   ) : (
                     <Typography variant="caption" color={riskStatus === "error" ? "error.main" : "text.secondary"}>
                       {riskStatus === "error"
-                        ? "Providerfehler"
-                        : riskStatus === "unavailable"
-                        ? "Keine Historie"
-                        : "Lädt..."}
+                        ? t("etfs.unavailable")
+                        : t("etfs.noHistory")}
                     </Typography>
                   )}
                 </TableCell>
@@ -755,20 +769,20 @@ export default function Etfs() {
                   />
                 </TableCell>
                 <TableCell>{formatCurrency(rowTotal)}</TableCell>
-                <TableCell>{formatAddedAt(selectedAddedAt?.[etf.symbol])}</TableCell>
+                <TableCell>{formatDateTime(selectedAddedAt?.[etf.symbol])}</TableCell>
                 <TableCell>
                   <Button variant="contained" onClick={() => handleBuy(etf.symbol)} disabled={buyDisabled}>
-                    Buy
+                    {t("etfs.buyAction")}
                   </Button>
                 </TableCell>
                 <TableCell>
                   <Tooltip
                     title={
                       (state?.holdings?.[etf.symbol]?.shares || 0) > 0
-                        ? "Nicht moeglich: ETF ist noch im Portfolio"
+                        ? t("etfs.removeHeld")
                         : selectedSymbols.length <= 1
-                        ? "Mindestens ein ETF muss in der Liste bleiben"
-                        : `ETF ${etf.symbol} aus der Liste entfernen`
+                        ? t("etfs.removeLast")
+                        : t("etfs.removeConfirm", { symbol: etf.symbol })
                     }
                   >
                     <span>
@@ -794,6 +808,7 @@ export default function Etfs() {
           })}
         </TableBody>
       </Table>
+      </TableContainer>
 
       <Dialog
         open={Boolean(removeDialogSymbol)}
@@ -808,21 +823,21 @@ export default function Etfs() {
           }
         }}
       >
-        <DialogTitle sx={{ pb: 1, fontWeight: 800 }}>ETF entfernen?</DialogTitle>
+        <DialogTitle sx={{ pb: 1, fontWeight: 800 }}>{t("etfs.removeTitle")}</DialogTitle>
         <DialogContent sx={{ pt: "8px !important" }}>
           <DialogContentText sx={{ color: "text.primary" }}>
-            Soll der ETF <strong>{removeDialogSymbol}</strong> wirklich aus der Liste genommen werden?
+            {t("etfs.removeBody", { symbol: removeDialogSymbol })}
           </DialogContentText>
           <DialogContentText sx={{ mt: 1, color: "text.secondary", fontSize: "0.9rem" }}>
-            Diese Aktion entfernt nur den Eintrag aus der ETF-Liste.
+            {t("etfs.removeHint")}
           </DialogContentText>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2, pt: 1 }}>
           <Button onClick={handleCloseRemoveDialog} variant="outlined">
-            Abbrechen
+            {t("common.cancel")}
           </Button>
           <Button onClick={handleConfirmRemoveEtf} color="error" variant="contained">
-            Entfernen
+            {t("etfs.removeAction")}
           </Button>
         </DialogActions>
       </Dialog>

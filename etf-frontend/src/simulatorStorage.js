@@ -1,4 +1,5 @@
 import { apiGet } from "./apiClient";
+import { getLocale, t } from "./i18n";
 
 const STORAGE_KEY = "etfSimulatorStateV1";
 const STORAGE_KEY_PREFIX_V2 = "etfSimulatorStateV2:";
@@ -15,7 +16,8 @@ const XIRR_MAX_RATE = 1024;
 export const ETF_CATALOG = [
   { symbol: "VWCE", name: "Vanguard FTSE All-World UCITS ETF", price: 116.2, ter: 0.22 },
   { symbol: "EUNL", name: "iShares Core MSCI World UCITS ETF", price: 89.45, ter: 0.2 },
-  { symbol: "EMIM", name: "iShares Core MSCI EM IMI UCITS ETF", price: 33.8, ter: 0.18 },
+  { symbol: "IS3N", name: "iShares Core MSCI EM IMI UCITS ETF Acc", price: 33.8, ter: 0.18 },
+  { symbol: "EMIM", name: "iShares Core MSCI EM IMI UCITS ETF Acc", price: 33.8, ter: 0.18 },
   { symbol: "SXR8", name: "iShares Core S&P 500 UCITS ETF", price: 520.9, ter: 0.07 },
   { symbol: "EXSA", name: "iShares STOXX Europe 600 UCITS ETF", price: 50.4, ter: 0.2 },
   { symbol: "SPYD", name: "SPDR S&P U.S. Dividend Aristocrats", price: 62.7, ter: 0.35 },
@@ -24,7 +26,7 @@ export const ETF_CATALOG = [
   { symbol: "VUSA", name: "Vanguard S&P 500 UCITS ETF", price: 95.8, ter: 0.07 },
   { symbol: "XDAX", name: "Xtrackers DAX UCITS ETF", price: 189.4, ter: 0.09 },
   { symbol: "IMEU", name: "iShares Core MSCI Europe UCITS ETF", price: 31.6, ter: 0.12 },
-  { symbol: "EIMI", name: "iShares Core MSCI Emerging Markets IMI ETF", price: 35.7, ter: 0.18 }
+  { symbol: "EIMI", name: "iShares Core MSCI Emerging Markets IMI UCITS ETF Acc", price: 35.7, ter: 0.18 }
 ];
 
 export const DEFAULT_ETF_SYMBOLS = ["VWCE", "EUNL", "EMIM", "SXR8", "EXSA", "SPYD"];
@@ -442,7 +444,7 @@ export async function searchEtfPool(query, limit = 15) {
   try {
     const params = new URLSearchParams({ q: query.trim(), limit: String(limit) });
     const data = await apiGet(`/api/market/pool?${params.toString()}`, {
-      fallbackMessage: "ETF-Pool konnte nicht geladen werden."
+      fallbackMessage: t("market.poolFailed")
     });
     return Array.isArray(data) ? data : [];
   } catch (_error) {
@@ -461,7 +463,8 @@ export async function fetchLivePrices(forceRefresh = false, symbols = null) {
     }
     const query = params.toString();
     const data = await apiGet(query ? `/api/market/quotes?${query}` : "/api/market/quotes", {
-      fallbackMessage: "Kurse konnten nicht geladen werden."
+      fallbackMessage: "Kurse konnten nicht geladen werden.",
+      timeoutMs: 25000
     });
     return data;
   } catch (e) {
@@ -521,10 +524,51 @@ export async function fetchRiskMetrics(symbols = null) {
   }
 }
 
+function storedQuoteRefreshSeconds() {
+  const minutes = Number(localStorage.getItem("market.quoteRefreshMinutes"));
+  if (Number.isFinite(minutes) && minutes >= 1 && minutes <= 15) {
+    return Math.round(minutes) * 60;
+  }
+  return 300;
+}
+
+export async function fetchMarketQuoteSettings() {
+  const fallbackSeconds = storedQuoteRefreshSeconds();
+  try {
+    const data = await apiGet("/api/settings/market-quotes", {
+      fallbackMessage: "Kurs-Aktualisierung konnte nicht geladen werden."
+    });
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new Error("Kurs-Aktualisierung: ungültige Antwort.");
+    }
+    const minutes = Number(data.quoteRefreshMinutes);
+    const secondsFromMinutes = Number.isFinite(minutes) && minutes >= 1 && minutes <= 15
+      ? Math.round(minutes) * 60
+      : null;
+    const seconds = secondsFromMinutes
+      || Number(data.quoteRefreshSeconds)
+      || fallbackSeconds;
+    if (secondsFromMinutes) {
+      localStorage.setItem("market.quoteRefreshMinutes", String(Math.round(minutes)));
+    }
+    return {
+      quoteRefreshSeconds: seconds,
+      nextDelayedAt: data.nextDelayedAt || null,
+      firstRefreshAt: data.firstRefreshAt || data.nextDelayedAt || null
+    };
+  } catch (_error) {
+    return {
+      quoteRefreshSeconds: fallbackSeconds,
+      nextDelayedAt: null,
+      firstRefreshAt: null
+    };
+  }
+}
+
 export async function fetchPortfolioBenchmarkSettings() {
   try {
     const data = await apiGet("/api/settings/portfolio-benchmark", {
-      fallbackMessage: "Benchmark-Einstellungen konnten nicht geladen werden."
+      fallbackMessage: t("market.benchmarkFailed")
     });
 
     const annualRatePct = Number(data?.annualRatePct);
@@ -540,7 +584,7 @@ export async function fetchPortfolioBenchmarkSettings() {
 
 function requireValidQuantity(quantity) {
   if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isInteger(quantity)) {
-    throw new Error("Bitte eine gueltige ganze Anzahl eingeben.");
+    throw new Error("Bitte eine gültige ganze Anzahl eingeben.");
   }
 }
 
@@ -650,12 +694,13 @@ export function calculateMetrics(state, livePrices = null, options = {}) {
 
   const positions = Object.entries(state.holdings).map(([symbol, holding]) => {
     const etf = findEtf(symbol);
-    const hasLivePrice = livePrices && livePrices[symbol] != null;
+    const mappedPrice = livePrices ? Number(livePrices[symbol]) : NaN;
+    const hasLivePrice = Number.isFinite(mappedPrice) && mappedPrice > 0;
     const isCustomEtf = Boolean(etf) && !DEFAULT_ETF_SYMBOL_SET.has(symbol);
 
     let currentPrice = null;
     if (hasLivePrice) {
-      currentPrice = livePrices[symbol];
+      currentPrice = mappedPrice;
     } else if (etf && (livePrices == null || allowCatalogFallback || isCustomEtf)) {
       currentPrice = etf.price;
     }
@@ -690,7 +735,11 @@ export function calculateMetrics(state, livePrices = null, options = {}) {
 
   const investedValue = positions.reduce((sum, p) => sum + p.currentValue, 0);
   const costBasis = positions.reduce((sum, p) => sum + p.costTotal, 0);
-  const unrealizedPnl = investedValue - costBasis;
+  const markedCostBasis = positions.reduce(
+    (sum, p) => (p.currentPrice == null ? sum : sum + p.costTotal),
+    0
+  );
+  const unrealizedPnl = investedValue - markedCostBasis;
   const realizedPnl = state.transactions
     .filter((tx) => tx.type === "SELL")
     .reduce((sum, tx) => sum + (tx.realizedProfit || 0), 0);
@@ -716,7 +765,7 @@ export function calculateMetrics(state, livePrices = null, options = {}) {
 }
 
 export function formatCurrency(value) {
-  return new Intl.NumberFormat("de-DE", {
+  return new Intl.NumberFormat(getLocale(), {
     style: "currency",
     currency: "EUR",
     maximumFractionDigits: 2
@@ -729,4 +778,33 @@ export function formatPercent(value) {
   }
 
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+export function quoteSourceLabel(source) {
+  switch (String(source || "").toLowerCase()) {
+    case "delayed":
+      return t("quote.sourceDelayed");
+    case "cached":
+      return t("quote.sourceCached");
+    case "custom":
+      return t("quote.sourceCustom");
+    case "live":
+      return t("quote.sourceLive");
+    case "fallback":
+    default:
+      return t("quote.sourceFallback");
+  }
+}
+
+export function tradeTypeLabel(type) {
+  switch (String(type || "").toUpperCase()) {
+    case "BUY":
+      return t("trade.buy");
+    case "SELL":
+      return t("trade.sell");
+    case "DEPOT_FEE":
+      return t("trade.depotFee");
+    default:
+      return type || t("common.dash");
+  }
 }

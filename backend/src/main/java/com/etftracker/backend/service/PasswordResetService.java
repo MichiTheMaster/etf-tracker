@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,8 +20,9 @@ public class PasswordResetService {
 
     private final PasswordResetTokenRepository tokenRepository;
     private final UserRepository userRepository;
+    private final UserService userService;
+    private final UserSessionService userSessionService;
     private final JavaMailSender mailSender;
-    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     @Value("${app.public-base-url:http://localhost:3000}")
     private String publicBaseUrl;
@@ -35,19 +35,21 @@ public class PasswordResetService {
 
     public PasswordResetService(PasswordResetTokenRepository tokenRepository,
             UserRepository userRepository,
+            UserService userService,
+            UserSessionService userSessionService,
             ObjectProvider<JavaMailSender> mailSenderProvider) {
         this.tokenRepository = tokenRepository;
         this.userRepository = userRepository;
+        this.userService = userService;
+        this.userSessionService = userSessionService;
         this.mailSender = mailSenderProvider.getIfAvailable();
     }
 
     @Transactional
     public void createAndSendResetToken(String email) {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("Keine Benutzer mit dieser E-Mail-Adresse gefunden"));
-
-        if (!user.isEmailVerified()) {
-            throw new IllegalArgumentException("E-Mail-Adresse ist nicht verifiziert");
+        User user = userRepository.findByEmail(email).orElse(null);
+        if (user == null || !user.isEmailVerified()) {
+            return;
         }
 
         tokenRepository.deleteByUser_Id(user.getId());
@@ -80,6 +82,7 @@ public class PasswordResetService {
 
     @Transactional
     public void resetPassword(String token, String newPassword) {
+        userService.validatePasswordStrength(newPassword);
         PasswordResetToken resetToken = tokenRepository.findByToken(token)
                 .orElseThrow(() -> new IllegalArgumentException("Reset-Link ist ungültig"));
 
@@ -92,8 +95,9 @@ public class PasswordResetService {
         }
 
         User user = resetToken.getUser();
-        user.setPassword(passwordEncoder.encode(newPassword));
+        userService.applyNewPassword(user, newPassword);
         userRepository.save(user);
+        userSessionService.revokeAll(user.getUsername());
 
         resetToken.setUsedAt(Instant.now());
         tokenRepository.save(resetToken);

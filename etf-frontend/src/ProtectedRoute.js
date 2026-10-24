@@ -1,6 +1,8 @@
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 
 export default function ProtectedRoute({ children, requiredRole, authStatus, currentUser }) {
+  const location = useLocation();
+
   if (authStatus === "checking") {
     return <div>Authentifizierung wird geprueft...</div>;
   }
@@ -16,6 +18,10 @@ export default function ProtectedRoute({ children, requiredRole, authStatus, cur
 
   if (requiredRoles.length > 0 && !requiredRoles.some((role) => roles.includes(role))) {
     return <Navigate to="/dashboard" replace />;
+  }
+
+  if (currentUser.passwordExpired && location.pathname !== "/me") {
+    return <Navigate to="/me" replace />;
   }
 
   return children;

@@ -63,17 +63,36 @@ export async function apiRequest(path, options = {}) {
     headers,
     credentials = "include",
     fallbackMessage,
+    timeoutMs,
     ...restOptions
   } = options;
 
   const hasJsonBody = body != null && !(body instanceof FormData);
-  const response = await fetch(`${API_BASE}${path}`, {
-    method,
-    credentials,
-    headers: normalizeHeaders(headers, hasJsonBody),
-    body: hasJsonBody ? JSON.stringify(body) : body,
-    ...restOptions
-  });
+  const timeout = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
+    ? Number(timeoutMs)
+    : 0;
+  const controller = timeout > 0 ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeout) : null;
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method,
+      credentials,
+      headers: normalizeHeaders(headers, hasJsonBody),
+      body: hasJsonBody ? JSON.stringify(body) : body,
+      ...restOptions,
+      signal: controller?.signal ?? restOptions.signal
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new ApiError(fallbackMessage || "Zeitüberschreitung beim Laden.", 0, null);
+    }
+    throw error;
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 
   const payload = await parseResponseBody(response);
 

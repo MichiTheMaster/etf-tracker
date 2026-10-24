@@ -2,33 +2,36 @@ import { useEffect, useState } from "react";
 import { Link as RouterLink, useSearchParams } from "react-router-dom";
 import { Alert, Box, Button, CircularProgress, Paper, Typography } from "@mui/material";
 import { apiGet } from "./apiClient";
+import LanguageToggle from "./LanguageToggle";
+import { useI18n } from "./i18n";
 
 export default function VerifyEmail() {
+  const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const [status, setStatus] = useState("loading");
-  const [message, setMessage] = useState("E-Mail-Adresse wird bestaetigt...");
+  const [message, setMessage] = useState(t("auth.verifying"));
 
   useEffect(() => {
     const token = searchParams.get("token");
 
     if (!token) {
       setStatus("error");
-      setMessage("Der Verifizierungslink ist unvollstaendig.");
+      setMessage(t("auth.verifyIncomplete"));
       return;
     }
 
     const verify = async () => {
       try {
         const payload = await apiGet(`/auth/verify-email?token=${encodeURIComponent(token)}`, {
-          fallbackMessage: "Die E-Mail konnte nicht bestaetigt werden."
+          fallbackMessage: t("auth.verifyFailed")
         });
 
         setStatus("success");
-        setMessage(payload?.message || "E-Mail-Adresse erfolgreich bestaetigt.");
+        setMessage(payload?.message || t("auth.verifySuccess"));
       } catch (error) {
         console.error("Email verification failed", error);
         setStatus("error");
-        setMessage(error.message || "Server nicht erreichbar.");
+        setMessage(error.message || t("common.serverUnreachable"));
       }
     };
 
@@ -38,8 +41,11 @@ export default function VerifyEmail() {
   return (
     <Box sx={{ display: "flex", justifyContent: "center", mt: 10, px: 2 }}>
       <Paper sx={{ p: 4, width: 480, maxWidth: "100%" }}>
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 1 }}>
+          <LanguageToggle />
+        </Box>
         <Typography variant="h5" sx={{ mb: 3, textAlign: "center" }}>
-          E-Mail bestaetigen
+          {t("auth.verifyTitle")}
         </Typography>
 
         {status === "loading" ? (
@@ -54,7 +60,7 @@ export default function VerifyEmail() {
         )}
 
         <Button component={RouterLink} to="/login" variant="contained" fullWidth>
-          Zurueck zum Login
+          {t("auth.backToLogin")}
         </Button>
       </Paper>
     </Box>

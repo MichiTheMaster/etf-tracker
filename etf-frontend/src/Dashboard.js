@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Alert, Box, Paper, Tooltip, Typography } from "@mui/material";
 import { Link } from "react-router-dom";
-import { calculateMetrics, fetchLivePrices, formatCurrency, formatPercent } from "./simulatorStorage";
+import { calculateMetrics, fetchLivePrices, formatCurrency, formatPercent, tradeTypeLabel } from "./simulatorStorage";
 import { PortfolioAPI } from "./portfolioAPI";
+import { formatDateTime, useI18n } from "./i18n";
 
 export default function Dashboard() {
+  const { t } = useI18n();
   const [state, setState] = useState(null);
   const [quotes, setQuotes] = useState(null);
   const [error, setError] = useState("");
@@ -17,12 +19,12 @@ export default function Dashboard() {
         setState(portfolioState);
 
         const symbols = Object.keys(portfolioState?.holdings || {});
-        const quoteData = await fetchLivePrices(true, symbols);
+        const quoteData = await fetchLivePrices(false, symbols);
         if (quoteData) {
           setQuotes(quoteData);
         }
       } catch (loadError) {
-        setError(loadError?.message || "Portfolio konnte nicht geladen werden.");
+        setError(loadError?.message || t("dashboard.loadFailed"));
       } finally {
         setIsLoading(false);
       }
@@ -34,7 +36,7 @@ export default function Dashboard() {
   if (isLoading) {
     return (
       <Paper sx={{ p: 3 }}>
-        <Typography>Uebersicht wird geladen...</Typography>
+        <Typography>{t("dashboard.loading")}</Typography>
       </Paper>
     );
   }
@@ -47,14 +49,18 @@ export default function Dashboard() {
           variant="filled"
           sx={{ borderRadius: 2, boxShadow: "0 10px 24px rgba(198, 40, 40, 0.18)" }}
         >
-          {error || "Portfolio konnte nicht geladen werden."}
+          {error || t("dashboard.loadFailed")}
         </Alert>
       </Paper>
     );
   }
 
   const priceMap = quotes
-    ? Object.fromEntries(Object.entries(quotes).map(([s, q]) => [s, q.price]))
+    ? Object.fromEntries(
+        Object.entries(quotes)
+          .filter(([, quote]) => Number(quote?.price) > 0)
+          .map(([s, q]) => [s, q.price])
+      )
     : null;
 
   const metrics = calculateMetrics(state, priceMap);
@@ -96,33 +102,14 @@ export default function Dashboard() {
     : 0;
   const largestPositionDetail = largestPosition
     ? `${formatPercent(largestPositionShare)} | ${formatCurrency(largestPosition.currentValue || 0)}`
-    : "Noch keine Positionen";
-  let latestTradeLabel = "Noch keiner";
+    : t("dashboard.bestNone");
+  let latestTradeLabel = t("dashboard.lastTradeNone");
   if (latestTrade) {
-    latestTradeLabel = latestTrade.type === "DEPOT_FEE" ? "Depotgebuehr" : latestTrade.symbol;
+    latestTradeLabel = latestTrade.type === "DEPOT_FEE" ? t("trade.depotFee") : latestTrade.symbol;
   }
   const latestTradeDetail = latestTrade
-    ? `${latestTrade.type} | ${formatDateTime(latestTrade.timestamp)}`
-    : "Keine Transaktionen vorhanden";
-
-  function formatDateTime(value) {
-    if (!value) {
-      return "-";
-    }
-
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      return "-";
-    }
-
-    return parsed.toLocaleString("de-DE", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit"
-    });
-  }
+    ? `${tradeTypeLabel(latestTrade.type)} | ${formatDateTime(latestTrade.timestamp)}`
+    : t("dashboard.lastTradeEmpty");
 
   const renderCard = ({ title, value, detail, color = "text.primary", detailColor = "text.secondary", tooltip, to }) => (
     <Tooltip
@@ -147,104 +134,100 @@ export default function Dashboard() {
 
   const cards = [
     {
-      title: "Gesamtwert",
+      title: t("dashboard.totalValue"),
       value: formatCurrency(metrics.totalValue),
       detail: hasCashDeficit
-        ? `Cash-Unterdeckung: ${formatCurrency(metrics.cash)}`
-        : `Cash: ${formatCurrency(metrics.cash)}`,
-      tooltip: "Der Gesamtwert ist die Summe aus aktuellem Cash-Bestand und dem aktuellen Marktwert aller gehaltenen ETF-Positionen. Er zeigt also den kompletten Depotstand zum jetzigen Zeitpunkt.",
+        ? t("dashboard.totalValueDeficit", { value: formatCurrency(metrics.cash) })
+        : t("dashboard.totalValueCash", { value: formatCurrency(metrics.cash) }),
+      tooltip: t("dashboard.totalValueHint"),
       to: "/portfolio"
     },
     {
-      title: "Gesamt P/L",
+      title: t("dashboard.totalPnl"),
       value: formatCurrency(metrics.totalPnl),
-      detail: `${formatPercent(metrics.returns.totalReturnPct)} seit Start`,
-      tooltip: "Gesamt P/L zeigt den gesamten Gewinn oder Verlust in Euro seit Start. Die Kennzahl setzt sich aus realisierten Ergebnissen aus Verkaeufen und unrealisierter Wertveraenderung der aktuell gehaltenen Positionen zusammen.",
+      detail: t("dashboard.totalPnlSince", { value: formatPercent(metrics.returns.totalReturnPct) }),
+      tooltip: t("dashboard.totalPnlHint"),
       color: metrics.totalPnl >= 0 ? "success.main" : "error.main",
       to: "/performance"
     },
     {
-      title: "Rendite",
+      title: t("dashboard.returnTitle"),
       value: formatPercent(metrics.returns.totalReturnPct),
-      detail: "Gesamtrendite seit Start",
-      tooltip: "Die Rendite zeigt die bisherige prozentuale Entwicklung des Portfolios seit Start. Sie ist nicht auf Jahresbasis umgerechnet und entspricht damit der direkten Gesamtentwicklung in Prozent.",
+      detail: t("dashboard.returnDetail"),
+      tooltip: t("dashboard.returnHint"),
       color: metrics.returns.totalReturnPct >= 0 ? "success.main" : "error.main",
       to: "/performance"
     },
     {
-      title: "Gebuehren gesamt",
+      title: t("dashboard.feesTitle"),
       value: formatCurrency(metrics.totalFees),
-      detail: "Bisher angefallene Gebuehren",
-      tooltip: "Hier werden alle bisher angefallenen Transaktions- und Depotgebuehren aufsummiert. Diese Kosten sind bereits in Cash und Gesamtwert eingerechnet und werden nicht noch einmal separat abgezogen.",
+      detail: t("dashboard.feesDetail"),
+      tooltip: t("dashboard.feesHint"),
       color: metrics.totalFees > 0 ? "error.main" : "text.primary",
       to: "/performance"
     },
     {
-      title: "Unterdeckung",
+      title: t("dashboard.deficit"),
       value: hasCashDeficit ? formatCurrency(cashDeficitAmount) : formatCurrency(0),
-      detail: hasCashDeficit ? "Ausgleich des Cash-Kontos erforderlich" : "Keine Unterdeckung vorhanden",
-      tooltip: hasCashDeficit
-        ? "Eine Unterdeckung liegt vor, wenn das Cash-Konto (Verrechnungskonto) unter null gefallen ist. Der hier angezeigte Betrag entspricht genau dem Fehlbetrag, der rechnerisch ausgeglichen werden muesste."
-        : "Solange keine Unterdeckung vorliegt, ist das Cash-Konto nicht im Minus. Dann besteht kein Ausgleichsbedarf.",
+      detail: hasCashDeficit ? t("dashboard.deficitNeeded") : t("dashboard.deficitNone"),
+      tooltip: hasCashDeficit ? t("dashboard.deficitHintYes") : t("dashboard.deficitHintNo"),
       color: hasCashDeficit ? "error.main" : "success.main",
       detailColor: hasCashDeficit ? "error.main" : "text.secondary",
       to: "/portfolio"
     },
     {
-      title: "Cash",
+      title: t("dashboard.cash"),
       value: formatCurrency(hasCashDeficit ? 0 : metrics.cash),
-      detail: hasCashDeficit ? "Kein frei verfuegbarer Cash-Bestand" : "Verfuegbar fuer ETF-Kaeufe",
-      tooltip: hasCashDeficit
-        ? "Bei einer Unterdeckung steht aktuell kein frei verfuegbarer Cash-Bestand fuer neue Kaeufe bereit. Zuerst muesste das Cash-Konto (Verrechnungskonto) wieder mindestens auf null gebracht werden."
-        : "Cash ist der aktuell freie Restbetrag auf dem Cash-Konto (Verrechnungskonto). Rechnerisch ergibt er sich aus Startkapital minus Kaeufe minus Kaufgebuehren plus Verkaeufe minus Verkaufsgebuehren minus Depotgebuehren.",
+      detail: hasCashDeficit ? t("dashboard.cashNone") : t("dashboard.cashAvailable"),
+      tooltip: hasCashDeficit ? t("dashboard.cashHintYes") : t("dashboard.cashHintNo"),
       color: hasCashDeficit ? "error.main" : "success.main",
       to: "/performance"
     },
     {
-      title: "Cash-Quote",
+      title: t("dashboard.cashQuote"),
       value: formatPercent(cashQuote),
-      detail: hasCashDeficit ? "Unterdeckung im Cash-Konto" : "Nicht investierter Anteil",
-      tooltip: "Die Cash-Quote zeigt, wie gross der Anteil des nicht investierten Kapitals am aktuellen Gesamtwert ist. Bei einer Unterdeckung wird statt freiem Cash rechnerisch ein negativer Kontostand des Cash-Kontos sichtbar.",
+      detail: hasCashDeficit ? t("dashboard.cashQuoteDeficit") : t("dashboard.cashQuoteInvested"),
+      tooltip: t("dashboard.cashQuoteHint"),
       color: hasCashDeficit ? "error.main" : "text.primary"
     },
     {
-      title: "Investitionsquote",
+      title: t("dashboard.investQuote"),
       value: formatPercent(investedQuote),
-      detail: "Im Markt investierter Anteil",
-      tooltip: "Die Investitionsquote zeigt, welcher Anteil deines aktuellen Gesamtwerts bereits in ETF-Positionen investiert ist und damit Marktschwankungen direkt ausgesetzt ist."
+      detail: t("dashboard.investQuoteDetail"),
+      tooltip: t("dashboard.investQuoteHint")
     },
     {
-      title: "Groesste Position",
-      value: largestPosition ? largestPosition.symbol : "Keine",
+      title: t("dashboard.largest"),
+      value: largestPosition ? largestPosition.symbol : t("common.none"),
       detail: largestPositionDetail,
-      tooltip: "Hier siehst du die aktuell groesste Position im Depot, gemessen am momentanen Marktwert. Die Detailzeile zeigt Anteil am Gesamtwert und absoluten Positionswert.",
+      tooltip: t("dashboard.largestHint"),
       to: "/portfolio"
     },
     {
-      title: "Bester ETF",
-      value: bestPosition ? bestPosition.symbol : "Keine",
+      title: t("dashboard.best"),
+      value: bestPosition ? bestPosition.symbol : t("common.none"),
       detail: bestPosition
         ? `${formatPercent(bestPosition.pnlPct)} | ${formatCurrency(bestPosition.pnlAbs || 0)}`
-        : "Noch keine Positionen",
-      tooltip: "Zeigt die Position mit der aktuell besten Wertentwicklung im Depot. Angezeigt werden prozentuale Entwicklung und absoluter Gewinn oder Verlust in Euro.",
+        : t("dashboard.bestNone"),
+      tooltip: t("dashboard.bestHint"),
       color: bestPosition && bestPosition.pnlPct >= 0 ? "success.main" : "text.primary",
       to: "/portfolio"
     },
     {
-      title: "Schwaechster ETF",
-      value: worstPosition ? worstPosition.symbol : "Keine",
+      title: t("dashboard.worst"),
+      value: worstPosition ? worstPosition.symbol : t("common.none"),
       detail: worstPosition
         ? `${formatPercent(worstPosition.pnlPct)} | ${formatCurrency(worstPosition.pnlAbs || 0)}`
-        : "Noch keine Positionen",
-      tooltip: "Zeigt die Position mit der aktuell schwaechsten Wertentwicklung im Depot. Angezeigt werden prozentuale Entwicklung und absoluter Gewinn oder Verlust in Euro.",
+        : t("dashboard.bestNone"),
+      tooltip: t("dashboard.worstHint"),
       color: worstPosition ? "error.main" : "text.primary",
       to: "/portfolio"
     },
     {
-      title: "Letzter Trade",
+      title: t("dashboard.lastTrade"),
       value: latestTradeLabel,
       detail: latestTradeDetail,
-      tooltip: "Zeigt den letzten echten Kauf- oder Verkaufsvorgang im Depot. So erkennst du schnell, welche Position zuletzt aktiv gehandelt wurde und wann das passiert ist.",
+      tooltip: t("dashboard.lastTradeHint"),
       to: "/performance"
     }
   ];
@@ -269,7 +252,7 @@ export default function Dashboard() {
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       {hasCashDeficit && (
         <Alert severity="warning" variant="filled">
-          Negativer Cash-Saldo: Das Verrechnungskonto ist in Unterdeckung und sollte ausgeglichen werden.
+          {t("dashboard.cashAlert")}
         </Alert>
       )}
       <Box

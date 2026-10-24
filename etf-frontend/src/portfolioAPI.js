@@ -12,11 +12,11 @@ function normalizeTradePayload(symbol, quantity, price) {
   }
 
   if (!Number.isInteger(normalizedQuantity) || normalizedQuantity <= 0) {
-    throw new Error("Ungueltige Anzahl.");
+    throw new Error("Ungültige Anzahl.");
   }
 
   if (!Number.isFinite(normalizedPrice) || normalizedPrice <= 0) {
-    throw new Error("Ungueltiger Preis.");
+    throw new Error("Ungültiger Preis.");
   }
 
   return {
@@ -93,7 +93,7 @@ export const PortfolioAPI = {
       return await apiPut(
         `${PORTFOLIO_API_BASE}/fees`,
         { transactionFeeRate, depotFeeRate },
-        { fallbackMessage: "Gebuehren konnten nicht aktualisiert werden." }
+        { fallbackMessage: "Gebühren konnten nicht aktualisiert werden." }
       );
     } catch (error) {
       console.error("Failed to update fee settings:", error);

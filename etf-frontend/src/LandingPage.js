@@ -1,8 +1,11 @@
 import { Box, Button, Chip, Container, Paper, Typography } from "@mui/material";
 import { Link as RouterLink } from "react-router-dom";
 import LegalFooter from "./LegalFooter";
+import LanguageToggle from "./LanguageToggle";
+import { useI18n } from "./i18n";
 
 export default function LandingPage() {
+  const { t } = useI18n();
   const hasSession =
     localStorage.getItem("sessionAuthenticated") === "1" &&
     localStorage.getItem("forceLoggedOut") !== "1";
@@ -20,53 +23,55 @@ export default function LandingPage() {
             background: "linear-gradient(135deg, #ffffff 0%, #f3f7ff 100%)"
           }}
         >
-          <Chip label="ETF-Dashboard" color="primary" sx={{ mb: 2, fontWeight: 700 }} />
+          <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 1 }}>
+            <LanguageToggle />
+          </Box>
+          <Chip label={t("legal.chip")} color="primary" sx={{ mb: 2, fontWeight: 700 }} />
           <Typography variant="h2" sx={{ fontSize: { xs: "2.2rem", md: "3.6rem" }, mb: 2 }}>
-            ETF-Portfolio verwalten, simulieren und auswerten.
+            {t("legal.headline")}
           </Typography>
           <Typography variant="h6" color="text.secondary" sx={{ maxWidth: 760, mb: 4, lineHeight: 1.6 }}>
-            Diese Demo-App zeigt Portfolio-Werte, ETF-Kaeufe und Performance-Daten in einer geschuetzten Oberflaeche.
-            Fuer eine spaetere Veroeffentlichung sind die wichtigsten Rechtsseiten bereits eingebunden.
+            {t("legal.intro")}
           </Typography>
 
           <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 5 }}>
             {hasSession ? (
               <Button component={RouterLink} to="/dashboard" variant="contained" size="large">
-                Zur App
+                {t("legal.toApp")}
               </Button>
             ) : (
               <Button component={RouterLink} to="/login" variant="contained" size="large">
-                Zum Login
+                {t("legal.toLogin")}
               </Button>
             )}
             <Button component={RouterLink} to="/legal/datenschutz" variant="outlined" size="large">
-              Datenschutz ansehen
+              {t("legal.viewPrivacy")}
             </Button>
           </Box>
 
           <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" }, gap: 2.5 }}>
             <Paper sx={{ p: 3, borderRadius: 3 }}>
               <Typography variant="h6" sx={{ mb: 1 }}>
-                Portfolio und Trades
+                {t("legal.cardPortfolioTitle")}
               </Typography>
               <Typography color="text.secondary">
-                ETF-Kaeufe, Verkaeufe und Bewertungen werden serverseitig gespeichert und in mehreren Ansichten dargestellt.
+                {t("legal.cardPortfolioText")}
               </Typography>
             </Paper>
             <Paper sx={{ p: 3, borderRadius: 3 }}>
               <Typography variant="h6" sx={{ mb: 1 }}>
-                Rechtsseiten vorhanden
+                {t("legal.cardLegalTitle")}
               </Typography>
               <Typography color="text.secondary">
-                Impressum, Datenschutz, Nutzungsbedingungen und Cookie-Hinweise sind in die App integriert.
+                {t("legal.cardLegalText")}
               </Typography>
             </Paper>
             <Paper sx={{ p: 3, borderRadius: 3 }}>
               <Typography variant="h6" sx={{ mb: 1 }}>
-                Consent-Hinweis
+                {t("legal.cardCookiesTitle")}
               </Typography>
               <Typography color="text.secondary">
-                Aktuell sind nur technische Cookies vorgesehen. Sobald Tracking oder Analytics dazukommen, sollte ein aktiver Consent-Banner aktiviert werden.
+                {t("legal.cardCookiesText")}
               </Typography>
             </Paper>
           </Box>

@@ -19,7 +19,7 @@ cd etf-tracker
 cp .env.example .env
 ```
 
-Dann in `.env` die Secrets/Werte setzen:
+Dann in `.env` die Secrets/Werte setzen (keine Platzhalter, JWT mindestens 32 Zeichen):
 - `MYSQL_PASSWORD`
 - `MYSQL_ROOT_PASSWORD`
 - `JWT_SECRET`
@@ -55,12 +55,12 @@ http://<ubuntu-ip>
 
 ```bash
 sudo ufw allow 80/tcp
-sudo ufw deny 8081/tcp
+sudo ufw allow 443/tcp
 sudo ufw enable
 sudo ufw status
 ```
 
-Hinweis: Port 8081 bleibt intern. Zugriff erfolgt nur ueber Nginx auf Port 80.
+Hinweis: Das Backend lauscht nur im Docker-Netz (kein Host-Port 8081). Zugriff erfolgt ausschliesslich ueber Nginx auf Port 80.
 
 ## 6) Updates ausrollen
 

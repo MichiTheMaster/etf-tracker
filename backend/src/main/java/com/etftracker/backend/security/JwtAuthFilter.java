@@ -55,25 +55,27 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
             if (username != null &&
                     SecurityContextHolder.getContext().getAuthentication() == null) {
+                try {
+                    UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
-                UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+                    if (jwtUtil.isTokenValid(token, userDetails)
+                            && sessionId != null
+                            && !sessionId.isBlank()
+                            && userSessionService.isSessionValid(sessionId, username)) {
 
-                // 🔥 KORREKT: Deine JwtUtil hat diese Methode
-                if (jwtUtil.isTokenValid(token, userDetails)
-                    && sessionId != null
-                    && !sessionId.isBlank()
-                    && userSessionService.isSessionValid(sessionId, username)) {
+                        UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                                userDetails,
+                                null,
+                                userDetails.getAuthorities());
 
-                    UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                            userDetails,
-                            null,
-                            userDetails.getAuthorities());
+                        authToken.setDetails(
+                                new WebAuthenticationDetailsSource().buildDetails(request));
 
-                    authToken.setDetails(
-                            new WebAuthenticationDetailsSource().buildDetails(request));
-
-                    SecurityContextHolder.getContext().setAuthentication(authToken);
-                    userSessionService.touchSession(sessionId);
+                        SecurityContextHolder.getContext().setAuthentication(authToken);
+                        userSessionService.touchSession(sessionId);
+                    }
+                } catch (Exception ignored) {
+                    SecurityContextHolder.clearContext();
                 }
             }
         }

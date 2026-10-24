@@ -15,6 +15,7 @@ import {
   Typography
 } from "@mui/material";
 import { apiDelete, apiGet, apiPost, apiRequest } from "./apiClient";
+import { formatDateTime, useI18n } from "./i18n";
 
 const FALLBACK_KEY = "market.fallbackPricesEnabled";
 const ALIAS_PREFIX = "market.alias.";
@@ -22,9 +23,12 @@ const INACTIVITY_TIMEOUT_KEY = "app.session.inactivityTimeoutMinutes";
 const INACTIVITY_WARNING_KEY = "app.session.inactivityWarningMinutes";
 const MAX_FAILED_ATTEMPTS_KEY = "app.security.maxFailedLoginAttempts";
 const LOCK_DURATION_MINUTES_KEY = "app.security.lockDurationMinutes";
+const PASSWORD_MAX_AGE_DAYS_KEY = "app.security.passwordMaxAgeDays";
 const PORTFOLIO_BENCHMARK_RATE_KEY = "app.portfolio.benchmarkAnnualRatePct";
+const QUOTE_REFRESH_MINUTES_KEY = "market.quoteRefreshMinutes";
 
 export default function AdminSettings({ currentUser, refreshCurrentUser }) {
+  const { t } = useI18n();
   const [settings, setSettings] = useState([]);
   const [users, setUsers] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
@@ -48,7 +52,9 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
   const [inactivityWarningMinutes, setInactivityWarningMinutes] = useState("28");
   const [maxFailedAttempts, setMaxFailedAttempts] = useState("5");
   const [lockDurationMinutes, setLockDurationMinutes] = useState("30");
+  const [passwordMaxAgeDays, setPasswordMaxAgeDays] = useState("90");
   const [portfolioBenchmarkRatePct, setPortfolioBenchmarkRatePct] = useState("3.0");
+  const [quoteRefreshMinutes, setQuoteRefreshMinutes] = useState("5");
   const [aliasBase, setAliasBase] = useState("");
   const [aliasTarget, setAliasTarget] = useState("");
   const roles = Array.isArray(currentUser?.roles) ? currentUser.roles : [];
@@ -61,7 +67,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
 
     try {
       const data = await apiGet("/api/admin/settings", {
-        fallbackMessage: "Settings konnten nicht geladen werden."
+        fallbackMessage: t("admin.loadFailed")
       });
       const list = Array.isArray(data) ? data : [];
       setSettings(list);
@@ -91,12 +97,22 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
         setLockDurationMinutes(lockDurationEntry.value);
       }
 
+      const passwordMaxAgeEntry = list.find((entry) => entry.key === PASSWORD_MAX_AGE_DAYS_KEY);
+      if (passwordMaxAgeEntry?.value) {
+        setPasswordMaxAgeDays(passwordMaxAgeEntry.value);
+      }
+
       const portfolioBenchmarkRateEntry = list.find((entry) => entry.key === PORTFOLIO_BENCHMARK_RATE_KEY);
       if (portfolioBenchmarkRateEntry?.value) {
         setPortfolioBenchmarkRatePct(portfolioBenchmarkRateEntry.value);
       }
+
+      const quoteRefreshEntry = list.find((entry) => entry.key === QUOTE_REFRESH_MINUTES_KEY);
+      if (quoteRefreshEntry?.value) {
+        setQuoteRefreshMinutes(quoteRefreshEntry.value);
+      }
     } catch (loadError) {
-      setError(loadError?.message || "Settings konnten nicht geladen werden.");
+      setError(loadError?.message || t("admin.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -107,11 +123,11 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
 
     try {
       const data = await apiGet("/api/admin/users", {
-        fallbackMessage: "Benutzer konnten nicht geladen werden."
+        fallbackMessage: t("admin.usersFailed")
       });
       setUsers(Array.isArray(data) ? data : []);
     } catch (loadError) {
-      setError(loadError?.message || "Benutzer konnten nicht geladen werden.");
+      setError(loadError?.message || t("admin.usersFailed"));
     } finally {
       setUserLoading(false);
     }
@@ -121,11 +137,11 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
     setSecurityLoading(true);
     try {
       const data = await apiGet("/api/admin/security/overview", {
-        fallbackMessage: "Sicherheitsdaten konnten nicht geladen werden."
+        fallbackMessage: t("admin.securityFailed")
       });
       setSecurityOverview(data);
     } catch (loadError) {
-      setError(loadError?.message || "Sicherheitsdaten konnten nicht geladen werden.");
+      setError(loadError?.message || t("admin.securityFailed"));
     } finally {
       setSecurityLoading(false);
     }
@@ -135,11 +151,11 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
     setHistoryLoading(true);
     try {
       const data = await apiGet("/api/admin/settings/history", {
-        fallbackMessage: "Setting-Historie konnte nicht geladen werden."
+        fallbackMessage: t("admin.historyFailed")
       });
       setSettingsHistory(Array.isArray(data) ? data : []);
     } catch (loadError) {
-      setError(loadError?.message || "Setting-Historie konnte nicht geladen werden.");
+      setError(loadError?.message || t("admin.historyFailed"));
     } finally {
       setHistoryLoading(false);
     }
@@ -193,13 +209,13 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
       if (toIso) params.set("to", toIso);
 
       const data = await apiGet(`/api/admin/audit-log?${params.toString()}`, {
-        fallbackMessage: "Audit-Log konnte nicht geladen werden."
+        fallbackMessage: t("admin.auditFailed")
       });
       setAuditLog(Array.isArray(data.content) ? data.content : []);
       setAuditTotalPages(data.totalPages ?? 0);
       setAuditPage(data.page ?? 0);
     } catch (err) {
-      setError(err?.message || "Audit-Log konnte nicht geladen werden.");
+      setError(err?.message || t("admin.auditFailed"));
     } finally {
       setAuditLoading(false);
     }
@@ -235,7 +251,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
       if (toIso) params.set("to", toIso);
 
       const csvText = await apiGet(`/api/admin/audit-log/export?${params.toString()}`, {
-        fallbackMessage: "CSV-Export fehlgeschlagen."
+        fallbackMessage: t("admin.csvFailed")
       });
       const blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -246,9 +262,9 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      setMessage("Audit-Log als CSV exportiert.");
+      setMessage(t("admin.csvExported"));
     } catch (exportError) {
-      setError(exportError?.message || "CSV-Export fehlgeschlagen.");
+      setError(exportError?.message || t("admin.csvFailed"));
     }
   };
 
@@ -264,13 +280,13 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
 
   const upsertSetting = async (key, value) => {
     await apiPost("/api/admin/settings", { key, value }, {
-      fallbackMessage: `Setting ${key} konnte nicht gespeichert werden.`
+      fallbackMessage: t("admin.settingSaveFailed", { key })
     });
   };
 
   const deleteSetting = async (key) => {
     await apiDelete(`/api/admin/settings/${encodeURIComponent(key)}`, {
-      fallbackMessage: `Setting ${key} konnte nicht geloescht werden.`
+      fallbackMessage: t("admin.settingDeleteFailed", { key })
     });
   };
 
@@ -280,11 +296,11 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
 
     try {
       await upsertSetting(FALLBACK_KEY, fallbackEnabled);
-      setMessage("Fallback-Einstellung gespeichert.");
+      setMessage(t("admin.fallbackSaved"));
       await loadSettings();
       await loadSettingsHistory();
     } catch (saveError) {
-      setError(saveError?.message || "Fallback-Einstellung konnte nicht gespeichert werden.");
+      setError(saveError?.message || t("admin.fallbackSaveFailed"));
     }
   };
 
@@ -296,23 +312,23 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
     const warning = Number.parseInt(inactivityWarningMinutes, 10);
 
     if (Number.isNaN(timeout) || timeout < 5 || timeout > 240) {
-      setError("Timeout muss zwischen 5 und 240 Minuten liegen.");
+      setError(t("admin.timeoutRange"));
       return;
     }
 
     if (Number.isNaN(warning) || warning < 1 || warning >= timeout) {
-      setError("Warnung muss mindestens 1 Minute sein und kleiner als Timeout.");
+      setError(t("admin.warningRange"));
       return;
     }
 
     try {
       await upsertSetting(INACTIVITY_TIMEOUT_KEY, String(timeout));
       await upsertSetting(INACTIVITY_WARNING_KEY, String(warning));
-      setMessage("Inaktivitaets-Timer gespeichert.");
+      setMessage(t("admin.inactivitySaved"));
       await loadSettings();
       await loadSettingsHistory();
     } catch (saveError) {
-      setError(saveError?.message || "Inaktivitaets-Timer konnte nicht gespeichert werden.");
+      setError(saveError?.message || t("admin.inactivitySaveFailed"));
     }
   };
 
@@ -322,25 +338,32 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
 
     const attempts = Number.parseInt(maxFailedAttempts, 10);
     const lockMinutes = Number.parseInt(lockDurationMinutes, 10);
+    const maxAgeDays = Number.parseInt(passwordMaxAgeDays, 10);
 
     if (Number.isNaN(attempts) || attempts < 3 || attempts > 20) {
-      setError("Maximale Fehlversuche muessen zwischen 3 und 20 liegen.");
+      setError(t("admin.failsRange"));
       return;
     }
 
     if (Number.isNaN(lockMinutes) || lockMinutes < 5 || lockMinutes > 1440) {
-      setError("Sperrdauer muss zwischen 5 und 1440 Minuten liegen.");
+      setError(t("admin.lockRange"));
+      return;
+    }
+
+    if (Number.isNaN(maxAgeDays) || maxAgeDays < 0 || maxAgeDays > 730) {
+      setError(t("admin.ageRange"));
       return;
     }
 
     try {
       await upsertSetting(MAX_FAILED_ATTEMPTS_KEY, String(attempts));
       await upsertSetting(LOCK_DURATION_MINUTES_KEY, String(lockMinutes));
-      setMessage("Sicherheits-Schwellwerte gespeichert.");
+      await upsertSetting(PASSWORD_MAX_AGE_DAYS_KEY, String(maxAgeDays));
+      setMessage(t("admin.securitySaved"));
       await loadSettings();
       await loadSettingsHistory();
     } catch (saveError) {
-      setError(saveError?.message || "Sicherheits-Schwellwerte konnten nicht gespeichert werden.");
+      setError(saveError?.message || t("admin.securitySaveFailed"));
     }
   };
 
@@ -351,17 +374,38 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
     const annualRatePct = Number.parseFloat(portfolioBenchmarkRatePct);
 
     if (Number.isNaN(annualRatePct) || annualRatePct < 0 || annualRatePct > 20) {
-      setError("Benchmark-Zinssatz muss zwischen 0 und 20 % p.a. liegen.");
+      setError(t("admin.benchmarkRange"));
       return;
     }
 
     try {
       await upsertSetting(PORTFOLIO_BENCHMARK_RATE_KEY, String(annualRatePct));
-      setMessage("Benchmark-Zinssatz gespeichert.");
+      setMessage(t("admin.benchmarkSaved"));
       await loadSettings();
       await loadSettingsHistory();
     } catch (saveError) {
-      setError(saveError?.message || "Benchmark-Zinssatz konnte nicht gespeichert werden.");
+      setError(saveError?.message || t("admin.benchmarkSaveFailed"));
+    }
+  };
+
+  const saveQuoteRefreshMinutes = async () => {
+    setError("");
+    setMessage("");
+
+    const minutes = Number.parseInt(quoteRefreshMinutes, 10);
+    if (Number.isNaN(minutes) || minutes < 1 || minutes > 15) {
+      setError(t("admin.intervalRange"));
+      return;
+    }
+
+    try {
+      await upsertSetting(QUOTE_REFRESH_MINUTES_KEY, String(minutes));
+      localStorage.setItem(QUOTE_REFRESH_MINUTES_KEY, String(minutes));
+      setMessage(t("admin.quoteSaved"));
+      await loadSettings();
+      await loadSettingsHistory();
+    } catch (saveError) {
+      setError(saveError?.message || t("admin.quoteSaveFailed"));
     }
   };
 
@@ -373,7 +417,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
     const target = aliasTarget.trim().toUpperCase();
 
     if (!base || !target) {
-      setError("Bitte Alias-Basis und Zielsymbol eingeben.");
+      setError(t("admin.aliasNeedBoth"));
       return;
     }
 
@@ -381,11 +425,11 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
       await upsertSetting(`${ALIAS_PREFIX}${base}`, target);
       setAliasBase("");
       setAliasTarget("");
-      setMessage(`Alias ${base} -> ${target} gespeichert.`);
+      setMessage(t("admin.aliasSaved", { base, target }));
       await loadSettings();
       await loadSettingsHistory();
     } catch (aliasError) {
-      setError(aliasError?.message || "Alias konnte nicht gespeichert werden.");
+      setError(aliasError?.message || t("admin.aliasSaveFailed"));
     }
   };
 
@@ -395,11 +439,11 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
 
     try {
       await deleteSetting(`${ALIAS_PREFIX}${base}`);
-      setMessage(`Alias ${base} geloescht.`);
+      setMessage(t("admin.aliasDeleted", { base }));
       await loadSettings();
       await loadSettingsHistory();
     } catch (aliasError) {
-      setError(aliasError?.message || "Alias konnte nicht geloescht werden.");
+      setError(aliasError?.message || t("admin.aliasDeleteFailed"));
     }
   };
 
@@ -411,14 +455,14 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
 
   const formatAuditDetails = (details) => {
     if (details === null || details === undefined || details === "") {
-      return "-";
+      return t("common.dash");
     }
     return details;
   };
 
   const formatHistoryValue = (value) => {
     if (value === null || value === undefined || value === "") {
-      return "-";
+      return t("common.dash");
     }
     return value;
   };
@@ -428,13 +472,13 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
     setMessage("");
     try {
       await apiDelete(`/api/admin/security/locks/${encodeURIComponent(userId)}`, {
-        fallbackMessage: "Konto konnte nicht entsperrt werden."
+        fallbackMessage: t("admin.unlockFailed")
       });
 
-      setMessage("Konto entsperrt.");
+      setMessage(t("admin.unlocked"));
       await Promise.all([loadUsers(), loadSecurityOverview(), loadAuditLog(0)]);
     } catch (unlockError) {
-      setError(unlockError?.message || "Konto konnte nicht entsperrt werden.");
+      setError(unlockError?.message || t("admin.unlockFailed"));
     }
   };
 
@@ -449,16 +493,16 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
     try {
       await apiRequest(`/api/admin/users/${encodeURIComponent(user.id)}/roles/admin`, {
         method,
-        fallbackMessage: "Rolle konnte nicht aktualisiert werden."
+        fallbackMessage: t("admin.roleFailed")
       });
 
       setMessage(isAdmin
-        ? `ADMIN-Rolle fuer ${user.username} entfernt.`
-        : `ADMIN-Rolle fuer ${user.username} vergeben.`);
+        ? t("admin.roleRevoked", { role: "ADMIN", username: user.username })
+        : t("admin.roleGranted", { role: "ADMIN", username: user.username }));
 
       await loadUsers();
     } catch (roleError) {
-      setError(roleError?.message || "Rolle konnte nicht aktualisiert werden.");
+      setError(roleError?.message || t("admin.roleFailed"));
     }
   };
 
@@ -473,16 +517,16 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
     try {
       await apiRequest(`/api/admin/users/${encodeURIComponent(user.id)}/roles/readonly-admin`, {
         method,
-        fallbackMessage: "Rolle konnte nicht aktualisiert werden."
+        fallbackMessage: t("admin.roleFailed")
       });
 
       setMessage(isReadonlyAdmin
-        ? `READONLY_ADMIN-Rolle fuer ${user.username} entfernt.`
-        : `READONLY_ADMIN-Rolle fuer ${user.username} vergeben.`);
+        ? t("admin.roleRevoked", { role: "READONLY_ADMIN", username: user.username })
+        : t("admin.roleGranted", { role: "READONLY_ADMIN", username: user.username }));
 
       await loadUsers();
     } catch (roleError) {
-      setError(roleError?.message || "Rolle konnte nicht aktualisiert werden.");
+      setError(roleError?.message || t("admin.roleFailed"));
     }
   };
 
@@ -492,10 +536,10 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
 
     try {
       await apiPost("/api/admin/security/self/restore-admin", null, {
-        fallbackMessage: "Admin-Rechte konnten nicht wiederhergestellt werden."
+        fallbackMessage: t("admin.restoreFailed")
       });
 
-      setMessage("Admin-Rechte wiederhergestellt. Seite wird aktualisiert...");
+      setMessage(t("admin.restoreOk"));
       await Promise.all([
         refreshCurrentUser ? refreshCurrentUser() : Promise.resolve(null),
         loadUsers(),
@@ -503,7 +547,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
         loadAuditLog(0)
       ]);
     } catch (restoreError) {
-      setError(restoreError?.message || "Admin-Rechte konnten nicht wiederhergestellt werden.");
+      setError(restoreError?.message || t("admin.restoreFailed"));
     }
   };
 
@@ -517,15 +561,15 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
     try {
       await apiRequest(`/api/admin/security/locks/${encodeURIComponent(user.id)}`, {
         method,
-        fallbackMessage: "Konto konnte nicht aktualisiert werden."
+        fallbackMessage: t("admin.accountUpdatedFailed")
       });
 
       setMessage(isLocked
-        ? `Konto von ${user.username} entsperrt.`
-        : `Konto von ${user.username} gesperrt.`);
+        ? t("admin.userUnlocked", { username: user.username })
+        : t("admin.userLocked", { username: user.username }));
       await Promise.all([loadUsers(), loadSecurityOverview(), loadAuditLog(0)]);
     } catch (lockError) {
-      setError(lockError?.message || "Konto konnte nicht aktualisiert werden.");
+      setError(lockError?.message || t("admin.accountUpdatedFailed"));
     }
   };
 
@@ -533,16 +577,16 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
     <Stack spacing={2}>
       <Paper sx={{ p: 3 }}>
         <Typography variant="h5" sx={{ mb: 1 }}>
-          Admin Einstellungen
+          {t("admin.title")}
         </Typography>
         <Typography color="text.secondary">
-          Diese Tabelle speichert Laufzeit-Konfigurationen in der Datenbank (nicht in application.properties).
+          {t("admin.subtitle")}
         </Typography>
       </Paper>
 
       {loading && (
         <Paper sx={{ p: 2 }}>
-          <Typography>Settings werden geladen...</Typography>
+          <Typography>{t("admin.loading")}</Typography>
         </Paper>
       )}
 
@@ -560,11 +604,11 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Session Timeout
+          {t("admin.sessionTitle")}
         </Typography>
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
           <TextField
-            label="Auto-Logout (Minuten)"
+            label={t("admin.autoLogout")}
             size="small"
             type="number"
             slotProps={{ htmlInput: { min: 5, max: 240, step: 1 } }}
@@ -574,7 +618,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
             disabled={!canWriteAdmin}
           />
           <TextField
-            label="Warnung ab (Minuten)"
+            label={t("admin.warningFrom")}
             size="small"
             type="number"
             slotProps={{ htmlInput: { min: 1, max: 239, step: 1 } }}
@@ -584,23 +628,23 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
             disabled={!canWriteAdmin}
           />
           <Button variant="contained" onClick={saveInactivitySettings} disabled={!canWriteAdmin}>
-            Speichern
+            {t("common.save")}
           </Button>
         </Stack>
         {!canWriteAdmin && (
           <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
-            READONLY_ADMIN: Nur Ansicht, keine Aenderungen erlaubt.
+            {t("admin.readonlyHint")}
           </Typography>
         )}
       </Paper>
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Login-Schutz
+          {t("admin.loginGuard")}
         </Typography>
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
           <TextField
-            label="Max. Fehlversuche"
+            label={t("admin.maxFails")}
             size="small"
             type="number"
             slotProps={{ htmlInput: { min: 3, max: 20, step: 1 } }}
@@ -610,7 +654,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
             disabled={!canWriteAdmin}
           />
           <TextField
-            label="Sperrdauer (Minuten)"
+            label={t("admin.lockMinutes")}
             size="small"
             type="number"
             slotProps={{ htmlInput: { min: 5, max: 1440, step: 1 } }}
@@ -619,93 +663,126 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
             sx={{ width: 220 }}
             disabled={!canWriteAdmin}
           />
+          <TextField
+            label={t("admin.passwordAge")}
+            size="small"
+            type="number"
+            slotProps={{ htmlInput: { min: 0, max: 730, step: 1 } }}
+            value={passwordMaxAgeDays}
+            onChange={(event) => setPasswordMaxAgeDays(event.target.value)}
+            sx={{ width: 240 }}
+            helperText={t("admin.passwordAgeHelp")}
+            disabled={!canWriteAdmin}
+          />
           <Button variant="contained" onClick={saveSecurityThresholds} disabled={!canWriteAdmin}>
-            Speichern
+            {t("common.save")}
           </Button>
         </Stack>
       </Paper>
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Portfolio-Benchmark
+          {t("admin.benchmarkTitle")}
         </Typography>
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
           <TextField
-            label="Benchmark-Zinssatz p.a. (%)"
+            label={t("admin.benchmarkRate")}
             size="small"
             type="number"
             slotProps={{ htmlInput: { min: 0, max: 20, step: 0.01 } }}
             value={portfolioBenchmarkRatePct}
             onChange={(event) => setPortfolioBenchmarkRatePct(event.target.value)}
             sx={{ width: 240 }}
-            helperText="Formel im Portfolio: (1 + r/365)^Tage - 1"
+            helperText={t("admin.benchmarkHelp")}
             disabled={!canWriteAdmin}
           />
           <Button variant="contained" onClick={savePortfolioBenchmarkRate} disabled={!canWriteAdmin}>
-            Speichern
+            {t("common.save")}
           </Button>
         </Stack>
       </Paper>
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Preis-Fallback
+          {t("admin.quoteTitle")}
+        </Typography>
+        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+          <TextField
+            label={t("admin.interval")}
+            size="small"
+            type="number"
+            slotProps={{ htmlInput: { min: 1, max: 15, step: 1 } }}
+            value={quoteRefreshMinutes}
+            onChange={(event) => setQuoteRefreshMinutes(event.target.value)}
+            sx={{ width: 220 }}
+            helperText={t("admin.intervalHelp")}
+            disabled={!canWriteAdmin}
+          />
+          <Button variant="contained" onClick={saveQuoteRefreshMinutes} disabled={!canWriteAdmin}>
+            {t("common.save")}
+          </Button>
+        </Stack>
+      </Paper>
+
+      <Paper sx={{ p: 3 }}>
+        <Typography variant="h6" sx={{ mb: 2 }}>
+          {t("admin.fallbackTitle")}
         </Typography>
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
           <Chip
-            label={fallbackEnabled === "true" ? "Fallback aktiv" : "Fallback deaktiviert"}
+            label={fallbackEnabled === "true" ? t("admin.fallbackOn") : t("admin.fallbackOff")}
             color={fallbackEnabled === "true" ? "success" : "warning"}
             size="small"
           />
           <TextField
             select
-            label="Fallback Preise"
+            label={t("admin.fallbackTitle")}
             size="small"
             value={fallbackEnabled}
             onChange={(event) => setFallbackEnabled(event.target.value)}
             sx={{ minWidth: 220 }}
             disabled={!canWriteAdmin}
           >
-            <MenuItem value="true">Aktiviert (empfohlen)</MenuItem>
-            <MenuItem value="false">Deaktiviert (strict live)</MenuItem>
+            <MenuItem value="true">{t("admin.fallbackEnabled")}</MenuItem>
+            <MenuItem value="false">{t("admin.fallbackDisabled")}</MenuItem>
           </TextField>
           <Button variant="contained" onClick={saveFallbackSetting} disabled={!canWriteAdmin}>
-            Speichern
+            {t("common.save")}
           </Button>
         </Stack>
       </Paper>
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Symbol Aliase
+          {t("admin.aliasTitle")}
         </Typography>
 
         <Stack direction="row" spacing={2} sx={{ mb: 2 }} flexWrap="wrap">
           <TextField
-            label="Basis (z.B. SXRS)"
+            label={t("admin.aliasBase")}
             size="small"
             value={aliasBase}
             onChange={(event) => setAliasBase(event.target.value)}
             disabled={!canWriteAdmin}
           />
           <TextField
-            label="Zielsymbol (z.B. SXR8)"
+            label={t("admin.aliasTarget")}
             size="small"
             value={aliasTarget}
             onChange={(event) => setAliasTarget(event.target.value)}
             disabled={!canWriteAdmin}
           />
           <Button variant="contained" onClick={addAlias} disabled={!canWriteAdmin}>
-            Alias speichern
+            {t("admin.aliasSave")}
           </Button>
         </Stack>
 
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Basis</TableCell>
-              <TableCell>Zielsymbol</TableCell>
-              <TableCell align="right">Aktion</TableCell>
+              <TableCell>{t("admin.aliasBaseCol")}</TableCell>
+              <TableCell>{t("admin.aliasTargetCol")}</TableCell>
+              <TableCell align="right">{t("common.action")}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -715,7 +792,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
                 <TableCell>{alias.target}</TableCell>
                 <TableCell align="right">
                   <Button color="error" size="small" onClick={() => removeAlias(alias.base)} disabled={!canWriteAdmin}>
-                    Loeschen
+                    {t("admin.delete")}
                   </Button>
                 </TableCell>
               </TableRow>
@@ -723,7 +800,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
             {aliases.length === 0 && (
               <TableRow>
                 <TableCell colSpan={3}>
-                  <Typography color="text.secondary">Keine Aliase hinterlegt.</Typography>
+                  <Typography color="text.secondary">{t("admin.aliasEmpty")}</Typography>
                 </TableCell>
               </TableRow>
             )}
@@ -734,46 +811,46 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
       <Paper sx={{ p: 3 }}>
         <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
           <Typography variant="h6" sx={{ flex: 1 }}>
-            Sicherheits-Panel
+            {t("admin.securityPanel")}
           </Typography>
           {!canWriteAdmin && (
             <Button size="small" variant="contained" color="warning" onClick={restoreOwnAdminRole}>
-              Admin-Rechte wiederherstellen
+              {t("admin.restoreRights")}
             </Button>
           )}
           <Button size="small" variant="outlined" onClick={loadSecurityOverview}>
-            Aktualisieren
+            {t("common.refresh")}
           </Button>
         </Stack>
 
         <Stack direction="row" spacing={2} sx={{ mb: 2 }} flexWrap="wrap">
           <Chip
             color="error"
-            label={`Fehlgeschlagene Logins 24h: ${securityOverview?.failedLoginsLast24Hours ?? 0}`}
+            label={t("admin.fails24h", { count: securityOverview?.failedLoginsLast24Hours ?? 0 })}
           />
           <Chip
             color="warning"
-            label={`Fehlgeschlagene Logins 7 Tage: ${securityOverview?.failedLoginsLast7Days ?? 0}`}
+            label={t("admin.fails7d", { count: securityOverview?.failedLoginsLast7Days ?? 0 })}
           />
           <Chip
             color="info"
-            label={`Gesperrte Accounts: ${securityOverview?.lockedAccounts?.length ?? 0}`}
+            label={t("admin.lockedAccounts", { count: securityOverview?.lockedAccounts?.length ?? 0 })}
           />
         </Stack>
 
-        {securityLoading && <Typography color="text.secondary">Sicherheitsdaten werden geladen...</Typography>}
+        {securityLoading && <Typography color="text.secondary">{t("admin.securityLoading")}</Typography>}
 
         <Typography variant="subtitle1" sx={{ mb: 1 }}>
-          Gesperrte Accounts
+          {t("admin.lockedTitle")}
         </Typography>
         <Table size="small" sx={{ mb: 3 }}>
           <TableHead>
             <TableRow>
-              <TableCell>Benutzer</TableCell>
-              <TableCell>E-Mail</TableCell>
-              <TableCell>Fehlversuche</TableCell>
-              <TableCell>Gesperrt bis</TableCell>
-              <TableCell align="right">Aktion</TableCell>
+              <TableCell>{t("admin.user")}</TableCell>
+              <TableCell>{t("admin.email")}</TableCell>
+              <TableCell>{t("admin.failCount")}</TableCell>
+              <TableCell>{t("admin.lockedUntil")}</TableCell>
+              <TableCell align="right">{t("common.action")}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -782,10 +859,10 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
                 <TableCell>{entry.username}</TableCell>
                 <TableCell>{entry.email}</TableCell>
                 <TableCell>{entry.failedLoginAttempts}</TableCell>
-                <TableCell>{entry.lockedUntil ? new Date(entry.lockedUntil).toLocaleString("de-DE") : "-"}</TableCell>
+                <TableCell>{formatDateTime(entry.lockedUntil)}</TableCell>
                 <TableCell align="right">
                   <Button size="small" color="warning" disabled={!canWriteAdmin} onClick={() => unlockAccount(entry.userId)}>
-                    Entsperren
+                    {t("admin.unlock")}
                   </Button>
                 </TableCell>
               </TableRow>
@@ -793,7 +870,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
             {!securityLoading && (securityOverview?.lockedAccounts?.length ?? 0) === 0 && (
               <TableRow>
                 <TableCell colSpan={5}>
-                  <Typography color="text.secondary">Keine gesperrten Accounts.</Typography>
+                  <Typography color="text.secondary">{t("admin.noLocked")}</Typography>
                 </TableCell>
               </TableRow>
             )}
@@ -801,21 +878,21 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
         </Table>
 
         <Typography variant="subtitle1" sx={{ mb: 1 }}>
-          Auffällige Aktivität
+          {t("admin.unusual")}
         </Typography>
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Zeitpunkt</TableCell>
-              <TableCell>Benutzer</TableCell>
-              <TableCell>Ereignis</TableCell>
-              <TableCell>Details</TableCell>
+              <TableCell>{t("admin.timestamp")}</TableCell>
+              <TableCell>{t("admin.user")}</TableCell>
+              <TableCell>{t("admin.event")}</TableCell>
+              <TableCell>{t("admin.details")}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {(securityOverview?.unusualActivities || []).map((entry) => (
               <TableRow key={entry.id}>
-                <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(entry.timestamp).toLocaleString("de-DE")}</TableCell>
+                <TableCell sx={{ whiteSpace: "nowrap" }}>{formatDateTime(entry.timestamp)}</TableCell>
                 <TableCell>{entry.username}</TableCell>
                 <TableCell>{entry.action}</TableCell>
                 <TableCell sx={{ color: "text.secondary", fontFamily: "monospace", fontSize: "0.78rem" }}>
@@ -826,7 +903,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
             {!securityLoading && (securityOverview?.unusualActivities?.length ?? 0) === 0 && (
               <TableRow>
                 <TableCell colSpan={4}>
-                  <Typography color="text.secondary">Keine auffälligen Ereignisse gefunden.</Typography>
+                  <Typography color="text.secondary">{t("admin.noUnusual")}</Typography>
                 </TableCell>
               </TableRow>
             )}
@@ -836,18 +913,18 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Benutzerverwaltung
+          {t("admin.usersTitle")}
         </Typography>
 
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Benutzer</TableCell>
-              <TableCell>E-Mail</TableCell>
-              <TableCell>Verifiziert</TableCell>
-              <TableCell>Rollen</TableCell>
-              <TableCell>Security</TableCell>
-              <TableCell align="right">Aktion</TableCell>
+              <TableCell>{t("admin.user")}</TableCell>
+              <TableCell>{t("admin.email")}</TableCell>
+              <TableCell>{t("admin.verified")}</TableCell>
+              <TableCell>{t("admin.roles")}</TableCell>
+              <TableCell>{t("admin.security")}</TableCell>
+              <TableCell align="right">{t("common.action")}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -859,10 +936,10 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
                 <TableRow key={user.id}>
                   <TableCell>{user.username}</TableCell>
                   <TableCell>{user.email}</TableCell>
-                  <TableCell>{user.emailVerified ? "Ja" : "Nein"}</TableCell>
-                  <TableCell>{roles.join(", ") || "-"}</TableCell>
+                  <TableCell>{user.emailVerified ? t("common.yes") : t("common.no")}</TableCell>
+                  <TableCell>{roles.join(", ") || t("common.dash")}</TableCell>
                   <TableCell>
-                    {isLocked ? `Gesperrt bis ${new Date(user.lockedUntil).toLocaleString("de-DE")}` : "OK"}
+                    {isLocked ? t("admin.lockedUntilAt", { time: formatDateTime(user.lockedUntil) }) : t("common.ok")}
                   </TableCell>
                   <TableCell align="right">
                     <Button
@@ -872,7 +949,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
                       disabled={!canWriteAdmin}
                       onClick={() => toggleAdminRole(user)}
                     >
-                      {isAdmin ? "Admin entziehen" : "Admin geben"}
+                      {isAdmin ? t("admin.revokeAdmin") : t("admin.grantAdmin")}
                     </Button>
                     <Button
                       size="small"
@@ -882,7 +959,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
                       onClick={() => toggleReadonlyAdminRole(user)}
                       sx={{ ml: 1 }}
                     >
-                      {roles.includes("READONLY_ADMIN") ? "Readonly entziehen" : "Readonly geben"}
+                      {roles.includes("READONLY_ADMIN") ? t("admin.revokeReadonly") : t("admin.grantReadonly")}
                     </Button>
                     <Button
                       size="small"
@@ -892,7 +969,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
                       onClick={() => toggleAccountLock(user)}
                       sx={{ ml: 1 }}
                     >
-                      {isLocked ? "Entsperren" : "Sperren"}
+                      {isLocked ? t("admin.unlock") : t("admin.lock")}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -901,14 +978,14 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
             {!userLoading && users.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6}>
-                  <Typography color="text.secondary">Keine Benutzer gefunden.</Typography>
+                  <Typography color="text.secondary">{t("admin.noUsers")}</Typography>
                 </TableCell>
               </TableRow>
             )}
             {userLoading && (
               <TableRow>
                 <TableCell colSpan={6}>
-                  <Typography color="text.secondary">Benutzer werden geladen...</Typography>
+                  <Typography color="text.secondary">{t("admin.usersLoading")}</Typography>
                 </TableCell>
               </TableRow>
             )}
@@ -919,30 +996,30 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
       <Paper sx={{ p: 3 }}>
         <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
           <Typography variant="h6" sx={{ flex: 1 }}>
-            Konfigurations-Historie
+            {t("admin.historyTitle")}
           </Typography>
           <Button size="small" variant="outlined" onClick={loadSettingsHistory}>
-            Aktualisieren
+            {t("common.refresh")}
           </Button>
         </Stack>
 
-        {historyLoading && <Typography color="text.secondary">Historie wird geladen...</Typography>}
+        {historyLoading && <Typography color="text.secondary">{t("admin.historyLoading")}</Typography>}
 
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Zeitpunkt</TableCell>
-              <TableCell>Benutzer</TableCell>
-              <TableCell>Key</TableCell>
-              <TableCell>Typ</TableCell>
-              <TableCell>Alt</TableCell>
-              <TableCell>Neu</TableCell>
+              <TableCell>{t("admin.timestamp")}</TableCell>
+              <TableCell>{t("admin.user")}</TableCell>
+              <TableCell>{t("admin.key")}</TableCell>
+              <TableCell>{t("admin.type")}</TableCell>
+              <TableCell>{t("admin.old")}</TableCell>
+              <TableCell>{t("admin.neu")}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {settingsHistory.map((entry) => (
               <TableRow key={entry.id}>
-                <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(entry.changedAt).toLocaleString("de-DE")}</TableCell>
+                <TableCell sx={{ whiteSpace: "nowrap" }}>{formatDateTime(entry.changedAt)}</TableCell>
                 <TableCell>{entry.changedBy}</TableCell>
                 <TableCell sx={{ fontFamily: "monospace" }}>{entry.settingKey}</TableCell>
                 <TableCell>{entry.changeType}</TableCell>
@@ -953,7 +1030,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
             {!historyLoading && settingsHistory.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6}>
-                  <Typography color="text.secondary">Noch keine Konfigurations-Historie vorhanden.</Typography>
+                  <Typography color="text.secondary">{t("admin.noHistory")}</Typography>
                 </TableCell>
               </TableRow>
             )}
@@ -963,13 +1040,13 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Rohe Settings-Tabelle
+          {t("admin.rawTitle")}
         </Typography>
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Key</TableCell>
-              <TableCell>Value</TableCell>
+              <TableCell>{t("admin.key")}</TableCell>
+              <TableCell>{t("admin.value")}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -982,7 +1059,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
             {!loading && settings.length === 0 && (
               <TableRow>
                 <TableCell colSpan={2}>
-                  <Typography color="text.secondary">Noch keine Einstellungen gespeichert.</Typography>
+                  <Typography color="text.secondary">{t("admin.noSettings")}</Typography>
                 </TableCell>
               </TableRow>
             )}
@@ -992,48 +1069,48 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
 
       <Paper sx={{ p: 2 }}>
         <Typography variant="body2" color="text.secondary">
-          Hinweis: Aenderungen wirken nach dem naechsten Kurs-Refresh. Ein kompletter Deploy ist dafuer nicht noetig.
+          {t("admin.refreshHint")}
         </Typography>
       </Paper>
 
       <Paper sx={{ p: 3 }}>
         <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
           <Typography variant="h6" sx={{ flex: 1 }}>
-            Audit-Log
+            {t("admin.auditTitle")}
           </Typography>
           <Button size="small" variant="outlined" onClick={exportAuditCsv}>
-            CSV Export
+            {t("admin.csvExport")}
           </Button>
           <Button size="small" variant="contained" onClick={() => loadAuditLog(0)}>
-            Filter anwenden
+            {t("admin.applyFilter")}
           </Button>
           <Button size="small" variant="outlined" onClick={() => loadAuditLog(auditPage)}>
-            Aktualisieren
+            {t("common.refresh")}
           </Button>
         </Stack>
 
         <Stack direction="row" spacing={2} sx={{ mb: 2 }} flexWrap="wrap">
           <TextField
-            label="Benutzer"
+            label={t("admin.user")}
             size="small"
             value={auditUsername}
             onChange={(event) => setAuditUsername(event.target.value)}
           />
           <TextField
             select
-            label="Kategorie"
+            label={t("admin.category")}
             size="small"
             value={auditCategory}
             onChange={(event) => setAuditCategory(event.target.value)}
             sx={{ minWidth: 170 }}
           >
-            <MenuItem value="">Alle</MenuItem>
-            <MenuItem value="AUTH">AUTH</MenuItem>
-            <MenuItem value="ADMIN">ADMIN</MenuItem>
-            <MenuItem value="PORTFOLIO">PORTFOLIO</MenuItem>
+            <MenuItem value="">{t("common.all")}</MenuItem>
+            <MenuItem value="AUTH">{t("admin.catAuth")}</MenuItem>
+            <MenuItem value="ADMIN">{t("admin.catAdmin")}</MenuItem>
+            <MenuItem value="PORTFOLIO">{t("admin.catPortfolio")}</MenuItem>
           </TextField>
           <TextField
-            label="Von (Datum)"
+            label={t("admin.fromDate")}
             size="small"
             type="date"
             value={auditFromDate}
@@ -1041,7 +1118,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
             slotProps={{ inputLabel: { shrink: true } }}
           />
           <TextField
-            label="Bis (Datum)"
+            label={t("admin.toDate")}
             size="small"
             type="date"
             value={auditToDate}
@@ -1066,48 +1143,48 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
               loadAuditLog(0, cleared);
             }}
           >
-            Zurücksetzen
+            {t("common.reset")}
           </Button>
           <Button
             size="small"
             variant="text"
             onClick={() => applyAuditPreset(1)}
           >
-            Heute
+            {t("common.today")}
           </Button>
           <Button
             size="small"
             variant="text"
             onClick={() => applyAuditPreset(7)}
           >
-            7 Tage
+            {t("common.days7")}
           </Button>
           <Button
             size="small"
             variant="text"
             onClick={() => applyAuditPreset(30)}
           >
-            30 Tage
+            {t("common.days30")}
           </Button>
         </Stack>
 
-        {auditLoading && <Typography color="text.secondary">Wird geladen...</Typography>}
+        {auditLoading && <Typography color="text.secondary">{t("admin.auditLoading")}</Typography>}
 
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Zeitpunkt</TableCell>
-              <TableCell>Benutzer</TableCell>
-              <TableCell>Kategorie</TableCell>
-              <TableCell>Aktion</TableCell>
-              <TableCell>Details</TableCell>
+              <TableCell>{t("admin.timestamp")}</TableCell>
+              <TableCell>{t("admin.user")}</TableCell>
+              <TableCell>{t("admin.category")}</TableCell>
+              <TableCell>{t("common.action")}</TableCell>
+              <TableCell>{t("admin.details")}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {auditLog.map((entry) => (
               <TableRow key={entry.id}>
                 <TableCell sx={{ whiteSpace: "nowrap" }}>
-                  {new Date(entry.timestamp).toLocaleString("de-DE")}
+                  {formatDateTime(entry.timestamp)}
                 </TableCell>
                 <TableCell>{entry.username}</TableCell>
                 <TableCell>
@@ -1124,7 +1201,7 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
             {!auditLoading && auditLog.length === 0 && (
               <TableRow>
                 <TableCell colSpan={5}>
-                  <Typography color="text.secondary">Noch keine Einträge vorhanden.</Typography>
+                  <Typography color="text.secondary">{t("admin.noEntries")}</Typography>
                 </TableCell>
               </TableRow>
             )}
@@ -1134,13 +1211,13 @@ export default function AdminSettings({ currentUser, refreshCurrentUser }) {
         {auditTotalPages > 1 && (
           <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 1 }}>
             <Button size="small" disabled={auditPage === 0} onClick={() => loadAuditLog(auditPage - 1)}>
-              Zurück
+              {t("common.back")}
             </Button>
             <Typography variant="body2" sx={{ alignSelf: "center" }}>
-              Seite {auditPage + 1} / {auditTotalPages}
+              {t("admin.page", { current: auditPage + 1, total: auditTotalPages })}
             </Typography>
             <Button size="small" disabled={auditPage >= auditTotalPages - 1} onClick={() => loadAuditLog(auditPage + 1)}>
-              Vor
+              {t("common.next")}
             </Button>
           </Stack>
         )}

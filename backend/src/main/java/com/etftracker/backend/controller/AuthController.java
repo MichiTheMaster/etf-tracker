@@ -125,7 +125,7 @@ public class AuthController {
     public ResponseEntity<Object> verifyEmail(@RequestParam("token") String token) {
         try {
             emailVerificationService.verifyEmail(token);
-            return ResponseEntity.ok(Map.of("message", "E-Mail-Adresse erfolgreich bestaetigt"));
+            return ResponseEntity.ok(Map.of("message", "E-Mail-Adresse erfolgreich bestätigt"));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
         }
@@ -169,11 +169,9 @@ public class AuthController {
             passwordResetService.createAndSendResetToken(email.trim());
             return ResponseEntity.ok(Map.of("message",
                     "Falls ein Account mit dieser E-Mail-Adresse existiert, wurde eine Reset-E-Mail versendet"));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
         } catch (Exception ex) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("message", "Passwort-Reset konnte nicht initiiert werden"));
+            return ResponseEntity.ok(Map.of("message",
+                    "Falls ein Account mit dieser E-Mail-Adresse existiert, wurde eine Reset-E-Mail versendet"));
         }
     }
 
@@ -185,10 +183,7 @@ public class AuthController {
             if (token == null || token.trim().isEmpty()) {
                 return ResponseEntity.badRequest().body(Map.of("message", "Token ist erforderlich"));
             }
-            if (newPassword == null || newPassword.length() < 6) {
-                return ResponseEntity.badRequest()
-                        .body(Map.of("message", "Passwort muss mindestens 6 Zeichen lang sein"));
-            }
+            userService.validatePasswordStrength(newPassword);
             passwordResetService.resetPassword(token.trim(), newPassword);
             return ResponseEntity.ok(Map.of("message", "Passwort erfolgreich zurückgesetzt"));
         } catch (IllegalArgumentException ex) {
@@ -200,9 +195,14 @@ public class AuthController {
     }
 
     private String extractIpAddress(HttpServletRequest request) {
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
         String forwarded = request.getHeader("X-Forwarded-For");
         if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
+            String[] parts = forwarded.split(",");
+            return parts[parts.length - 1].trim();
         }
         return request.getRemoteAddr();
     }

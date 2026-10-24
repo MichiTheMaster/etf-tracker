@@ -1,7 +1,9 @@
 import { Box, Typography } from "@mui/material";
 import { Link as RouterLink } from "react-router-dom";
+import { useI18n } from "./i18n";
 
 export default function LegalFooter({ compact = false }) {
+  const { t } = useI18n();
   return (
     <Box
       sx={{
@@ -17,20 +19,20 @@ export default function LegalFooter({ compact = false }) {
       }}
     >
       <Typography variant="body2" color="text.secondary">
-        ETF-Dashboard
+        {t("legal.brand")}
       </Typography>
       <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
         <Typography component={RouterLink} to="/legal/impressum" variant="body2" sx={{ textDecoration: "none" }}>
-          Impressum
+          {t("nav.impressum")}
         </Typography>
         <Typography component={RouterLink} to="/legal/datenschutz" variant="body2" sx={{ textDecoration: "none" }}>
-          Datenschutz
+          {t("nav.privacy")}
         </Typography>
         <Typography component={RouterLink} to="/legal/cookies" variant="body2" sx={{ textDecoration: "none" }}>
-          Cookies
+          {t("nav.cookies")}
         </Typography>
         <Typography component={RouterLink} to="/legal/nutzungsbedingungen" variant="body2" sx={{ textDecoration: "none" }}>
-          Nutzungsbedingungen
+          {t("nav.terms")}
         </Typography>
       </Box>
     </Box>

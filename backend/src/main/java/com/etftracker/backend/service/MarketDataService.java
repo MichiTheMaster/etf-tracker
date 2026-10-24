@@ -1,102 +1,88 @@
 package com.etftracker.backend.service;
 
 import com.etftracker.backend.dto.EtfPoolItemResponse;
+import com.etftracker.backend.dto.MarketQuoteSettingsResponse;
 import com.etftracker.backend.dto.MarketRiskResponse;
 import com.etftracker.backend.dto.QuoteResponse;
+import com.etftracker.backend.entity.MarketCache;
+import com.etftracker.backend.repository.MarketCacheRepository;
+import com.etftracker.backend.service.market.DeutscheBoerseDelayedClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import java.io.InputStream;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Service
 public class MarketDataService {
 
-    private static final int RISK_LOOKBACK_DAYS = 90;
-
     private static final Logger log = LoggerFactory.getLogger(MarketDataService.class);
 
-    private final RestTemplate restTemplate = new RestTemplate();
     private final AppSettingService appSettingService;
+    private final MarketCacheRepository marketCacheRepository;
+    private final DeutscheBoerseDelayedClient delayedQuoteClient;
+    private final ExecutorService refreshExecutor = Executors.newFixedThreadPool(2, runnable -> {
+        Thread thread = new Thread(runnable, "market-cache-refresh");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private final Set<String> inFlightQuoteRefresh = ConcurrentHashMap.newKeySet();
+
+    private static final String QUOTE_REFRESH_MINUTES_KEY = "market.quoteRefreshMinutes";
+
+    @Value("${app.market.cache.quote-stale-ms:1800000}")
+    private long quoteStaleMs;
+
+    @Value("${app.market.cache.ter-ttl-ms:604800000}")
+    private long terTtlMs;
 
     @Value("${app.market.fallback-prices-enabled:true}")
     private boolean fallbackPricesEnabledDefault;
 
     private record CacheEntry(double price, long timestamp, Double ter, String provider, String providerSymbol,
-            String terSource) {
-    }
-
-    private record YahooResult(double price, Double ter, String providerSymbol, String terSource) {
+            String terSource, Instant asOf) {
     }
 
     private record TerLookup(Double ter, String source) {
     }
 
-    private record RiskComputation(double volatilityPct, double drawdownPct, int riskScore, String riskLevel,
-            int sampleDays) {
-    }
-
     private final Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
     private final Set<String> missingTerSymbols = ConcurrentHashMap.newKeySet();
 
-    private static final long CACHE_TTL_MS = 60_000L;
-    private static final Pattern STOOQ_SYMBOL_PATTERN = Pattern.compile("\"symbol\"\\s*:\\s*\"([^\"]+)\"");
-    private static final Pattern STOOQ_CLOSE_PATTERN = Pattern.compile("\"close\"\\s*:\\s*\"([^\"]+)\"");
-
-    private static final Map<String, String> STOOQ_SYMBOLS = Map.of(
-            "VWCE", "vwce.de",
-            "EUNL", "eunl.de",
-            "EMIM", "eimi.uk",
-            "SXR8", "sxr8.de",
-            "EXSA", "exsa.de",
-            "SPYD", "spyd.us");
-
-    private static final Map<String, String> YAHOO_SYMBOLS = Map.ofEntries(
-            Map.entry("SPY", "SPY"),
-            Map.entry("VWCE", "VWCE.DE"),
-            Map.entry("EUNL", "EUNL.DE"),
-            Map.entry("SXR8", "SXR8.DE"),
-            Map.entry("EXSA", "EXSA.DE"),
-            Map.entry("VUSA", "VUSA.DE"),
-            Map.entry("CSPX", "CSPX.L"),
-            Map.entry("IUSN", "IUSN.DE"),
-            Map.entry("EIMI", "EIMI.L"),
-            Map.entry("EMIM", "EIMI.L"));
-
     private static final Map<String, String> SYMBOL_ALIASES = Map.of();
 
-    private static final Map<String, String> REVERSE_SYMBOLS;
-
-    static {
-        Map<String, String> rev = new HashMap<>();
-        STOOQ_SYMBOLS.forEach((k, v) -> rev.put(v.toUpperCase(Locale.ROOT), k));
-        REVERSE_SYMBOLS = Collections.unmodifiableMap(rev);
-    }
+    private static final Map<String, String> KNOWN_ISINS = Map.ofEntries(
+            Map.entry("VWCE", "IE00BK5BQT80"),
+            Map.entry("EUNL", "IE00B4L5Y983"),
+            Map.entry("SXR8", "IE00B5BMR087"),
+            Map.entry("CSPX", "IE00B5BMR087"),
+            Map.entry("VUSA", "IE00B3XXRP09"),
+            Map.entry("IUSN", "IE00BF4RFH31"),
+            Map.entry("EMIM", "IE00BKM4GZ66"),
+            Map.entry("EIMI", "IE00BKM4GZ66"),
+            Map.entry("IS3N", "IE00BKM4GZ66"),
+            Map.entry("SPYD", "US78468R7722"),
+            Map.entry("EXSA", "DE0002635307"));
 
     private static final Map<String, Double> FALLBACK_DEFAULTS = Map.ofEntries(
             Map.entry("SPY", 520.0),
             Map.entry("VWCE", 116.2),
             Map.entry("EUNL", 89.45),
             Map.entry("EMIM", 33.8),
+            Map.entry("IS3N", 33.8),
             Map.entry("SXR8", 520.9),
             Map.entry("EXSA", 50.4),
             Map.entry("SPYD", 62.7),
@@ -109,6 +95,7 @@ public class MarketDataService {
             Map.entry("VWCE", 0.22),
             Map.entry("EUNL", 0.20),
             Map.entry("EMIM", 0.18),
+            Map.entry("IS3N", 0.18),
             Map.entry("SXR8", 0.07),
             Map.entry("EXSA", 0.20),
             Map.entry("SPYD", 0.35),
@@ -127,20 +114,25 @@ public class MarketDataService {
     private static final List<EtfPoolItemResponse> ETF_POOL_FALLBACK = List.of(
             new EtfPoolItemResponse("VWCE", "Vanguard FTSE All-World UCITS ETF", "XETRA", "EUR", 116.2),
             new EtfPoolItemResponse("EUNL", "iShares Core MSCI World UCITS ETF", "XETRA", "EUR", 89.45),
-            new EtfPoolItemResponse("EMIM", "iShares Core MSCI EM IMI UCITS ETF", "XETRA", "EUR", 33.8),
+            new EtfPoolItemResponse("IS3N", "iShares Core MSCI EM IMI UCITS ETF Acc", "XETRA", "EUR", 33.8),
+            new EtfPoolItemResponse("EMIM", "iShares Core MSCI EM IMI UCITS ETF Acc", "LSE", "GBP", 33.8),
             new EtfPoolItemResponse("SXR8", "iShares Core S&P 500 UCITS ETF", "XETRA", "EUR", 520.9),
             new EtfPoolItemResponse("EXSA", "iShares STOXX Europe 600 UCITS ETF", "XETRA", "EUR", 50.4),
             new EtfPoolItemResponse("SPYD", "SPDR S&P U.S. Dividend Aristocrats ETF", "NYSE", "USD", 62.7),
             new EtfPoolItemResponse("VUSA", "Vanguard S&P 500 UCITS ETF", "XETRA", "EUR", 95.8),
             new EtfPoolItemResponse("CSPX", "iShares Core S&P 500 UCITS ETF", "LSE", "USD", 560.1),
             new EtfPoolItemResponse("IUSN", "iShares MSCI World Small Cap UCITS ETF", "XETRA", "EUR", 54.2),
-            new EtfPoolItemResponse("EIMI", "iShares Core MSCI Emerging Markets IMI ETF", "LSE", "USD", 35.7));
+            new EtfPoolItemResponse("EIMI", "iShares Core MSCI Emerging Markets IMI UCITS ETF Acc", "LSE", "USD", 35.7));
 
     public MarketDataService(
             AppSettingService appSettingService,
+            MarketCacheRepository marketCacheRepository,
+            DeutscheBoerseDelayedClient delayedQuoteClient,
             @Value("classpath:ter-fallbacks.properties") Resource terFallbackResource,
             @Value("${ter.fallback.file:./ter-fallbacks.properties}") String terFallbackFile) {
         this.appSettingService = appSettingService;
+        this.marketCacheRepository = marketCacheRepository;
+        this.delayedQuoteClient = delayedQuoteClient;
         this.terFallbacks = new ConcurrentHashMap<>();
         this.terFallbackFilePath = Paths.get(terFallbackFile).toAbsolutePath().normalize();
         loadTerFallbacks(terFallbackResource, this.terFallbackFilePath);
@@ -153,607 +145,178 @@ public class MarketDataService {
     public Map<String, QuoteResponse> getQuotes(List<String> symbols, boolean forceRefresh, boolean debugEnabled) {
         Map<String, QuoteResponse> result = new LinkedHashMap<>();
         List<String> toFetch = new ArrayList<>();
+        List<String> background = new ArrayList<>();
         long now = System.currentTimeMillis();
+        List<String> requested = symbols.stream()
+                .map(symbol -> symbol == null ? "" : symbol.trim())
+                .filter(symbol -> !symbol.isBlank())
+                .toList();
 
-        for (String sym : symbols) {
+        Map<String, MarketCache> persisted = loadPersisted(requested);
+
+        for (String sym : requested) {
             if (forceRefresh) {
                 toFetch.add(sym);
                 continue;
             }
-            CacheEntry entry = cache.get(sym);
-            if (entry != null && (now - entry.timestamp()) < CACHE_TTL_MS) {
-                result.put(sym, createQuote(sym, entry.price(), "cached", resolveTer(sym, entry.ter()), debugEnabled,
-                        entry.provider(), entry.providerSymbol(), entry.terSource()));
-            } else {
-                toFetch.add(sym);
+
+            CacheEntry memory = cache.get(sym);
+            if (memory != null && (now - memory.timestamp()) < quoteTtlMs()) {
+                result.put(sym, overlayDelayed(sym, memory, "cached", debugEnabled, now));
+                continue;
             }
+
+            MarketCache row = persisted.get(sym.toUpperCase(Locale.ROOT));
+            if (row != null && row.getPrice() != null && row.getPrice() > 0) {
+                long age = ageMs(row.getQuoteFetchedAt(), now);
+                if (age < quoteStaleMs) {
+                    CacheEntry hydrated = hydrateMemory(sym, row, now);
+                    result.put(sym, overlayDelayed(sym, hydrated, "cached", debugEnabled, now));
+                    if (age >= quoteTtlMs()) {
+                        background.add(sym);
+                    }
+                    continue;
+                }
+            }
+            toFetch.add(sym);
         }
 
         if (!toFetch.isEmpty()) {
-            fetchFromStooq(toFetch, result, debugEnabled);
+            fetchFromDelayed(toFetch, result, debugEnabled);
+            persistQuotes(toFetch, result, persisted);
         }
 
+        background.forEach(this::scheduleQuoteRefresh);
         return result;
     }
 
-    public Map<String, MarketRiskResponse> getRiskMetrics(List<String> symbols) {
-        return symbols.stream()
-                .map(String::trim)
-                .filter(symbol -> !symbol.isBlank())
-                .map(symbol -> Map.entry(symbol, fetchRiskMetric(symbol)))
-                .filter(entry -> entry.getValue() != null)
-                .collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        Map.Entry::getValue,
-                        (left, right) -> left,
-                        LinkedHashMap::new));
+    public MarketQuoteSettingsResponse quoteRefreshSettings() {
+        int minutes = quoteRefreshMinutes();
+        Instant now = Instant.now();
+        Instant nextDelayed = delayedQuoteClient.nextDelayedAt();
+        Instant intervalEnd = now.plusSeconds(minutes * 60L);
+        Instant delayedCap = now.plusSeconds(60);
+        Instant first = nextDelayed.isAfter(now) && !nextDelayed.isAfter(delayedCap) && !nextDelayed.isAfter(intervalEnd)
+                ? nextDelayed
+                : intervalEnd;
+        String nextDelayedAt = nextDelayed.truncatedTo(ChronoUnit.MILLIS).toString();
+        String firstRefreshAt = first.truncatedTo(ChronoUnit.MILLIS).toString();
+        return new MarketQuoteSettingsResponse(minutes, minutes * 60, nextDelayedAt, firstRefreshAt);
     }
 
-    @SuppressWarnings({ "unchecked", "rawtypes" })
+    private int quoteRefreshMinutes() {
+        return appSettingService.getInt(QUOTE_REFRESH_MINUTES_KEY, 5, 1, 15);
+    }
+
+    private long quoteTtlMs() {
+        return quoteRefreshMinutes() * 60_000L;
+    }
+
+    private QuoteResponse overlayDelayed(String symbol, CacheEntry entry, String source, boolean debugEnabled,
+            long now) {
+        QuoteResponse current = quoteFromEntry(symbol, entry, source, debugEnabled);
+        if (entry == null) {
+            return current;
+        }
+        String isin = entry.providerSymbol();
+        if (isin == null || isin.length() < 12) {
+            isin = resolveIsin(symbol);
+        }
+        DeutscheBoerseDelayedClient.DelayedQuote delayed = delayedQuoteClient.fetchLastPrice(isin);
+        if (delayed == null) {
+            return current;
+        }
+        if (entry.asOf() != null && delayed.tradeTime() != null && !delayed.tradeTime().isAfter(entry.asOf())) {
+            return current;
+        }
+        Instant asOf = delayed.tradeTime() != null ? delayed.tradeTime() : Instant.ofEpochMilli(now);
+        CacheEntry updated = new CacheEntry(delayed.price(), now, entry.ter(), "dbg-delayed", isin, entry.terSource(),
+                asOf);
+        cache.put(symbol, updated);
+        return quoteFromEntry(symbol, updated, "delayed", debugEnabled);
+    }
+
+    public Map<String, MarketRiskResponse> getRiskMetrics(List<String> symbols) {
+        return new LinkedHashMap<>();
+    }
+
     public List<EtfPoolItemResponse> searchEtfs(String query, int limit) {
         if (query == null || query.trim().isEmpty()) {
             return List.of();
         }
-
-        String encoded = URLEncoder.encode(query.trim(), StandardCharsets.UTF_8);
-        String url = "https://query1.finance.yahoo.com/v1/finance/search?q=" + encoded + "&quotesCount=30&newsCount=0";
-
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent", "Mozilla/5.0 (compatible; ETFTracker/1.0)");
-            headers.set("Accept", "application/json");
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-
-            ResponseEntity<Map> response = restTemplate.exchange(url, HttpMethod.GET, entity, Map.class);
-            Map<String, Object> body = response.getBody();
-            if (body == null || !(body.get("quotes") instanceof List<?> quotes)) {
-                return List.of();
-            }
-
-            List<EtfPoolItemResponse> result = new ArrayList<>();
-            Set<String> seenSymbols = new HashSet<>();
-            for (Object item : quotes) {
-                if (!(item instanceof Map<?, ?> map)) {
-                    continue;
-                }
-
-                String quoteType = Objects.toString(map.get("quoteType"), "").toUpperCase(Locale.ROOT);
-
-                String symbol = Objects.toString(map.get("symbol"), "").trim();
-                if (symbol.isEmpty()) {
-                    continue;
-                }
-
-                Object shortNameObj = map.get("shortname");
-                Object longNameObj = map.get("longname");
-                Object exchangeObj = map.get("exchange");
-                Object currencyObj = map.get("currency");
-
-                String name = Objects.toString(shortNameObj != null ? shortNameObj : longNameObj, symbol);
-                String exchange = Objects.toString(exchangeObj, "-");
-                String currency = Objects.toString(currencyObj, "-");
-                Double marketPrice = null;
-                Object marketPriceObj = map.get("regularMarketPrice");
-                if (marketPriceObj != null) {
-                    try {
-                        marketPrice = Double.parseDouble(marketPriceObj.toString());
-                    } catch (NumberFormatException ignored) {
-                        marketPrice = null;
-                    }
-                }
-
-                String normalizedName = name.toUpperCase(Locale.ROOT);
-                boolean looksLikeEtfByType = "ETF".equals(quoteType) || "MUTUALFUND".equals(quoteType);
-                boolean looksLikeEtfByName = normalizedName.contains("ETF") || normalizedName.contains("UCITS")
-                        || normalizedName.contains("INDEX");
-
-                if (!looksLikeEtfByType && !looksLikeEtfByName) {
-                    continue;
-                }
-
-                String normalizedSymbol = symbol.toUpperCase(Locale.ROOT);
-                if (seenSymbols.contains(normalizedSymbol)) {
-                    continue;
-                }
-
-                seenSymbols.add(normalizedSymbol);
-                result.add(new EtfPoolItemResponse(normalizedSymbol, name, exchange, currency, marketPrice));
-                if (result.size() >= limit) {
-                    break;
-                }
-            }
-
-            String q = query.trim().toUpperCase(Locale.ROOT);
-            for (EtfPoolItemResponse fallback : ETF_POOL_FALLBACK) {
-                if (result.size() >= limit) {
-                    break;
-                }
-
-                String fallbackSymbol = fallback.getSymbol().toUpperCase(Locale.ROOT);
-                String fallbackName = fallback.getName().toUpperCase(Locale.ROOT);
-                if (seenSymbols.contains(fallbackSymbol)) {
-                    continue;
-                }
-                if (!fallbackSymbol.contains(q) && !fallbackName.contains(q)) {
-                    continue;
-                }
-
-                seenSymbols.add(fallbackSymbol);
-                result.add(fallback);
-            }
-
-            return result.stream().limit(limit).toList();
-        } catch (Exception e) {
-            log.warn("ETF search failed: {}", e.getMessage());
-            String q = query.trim().toUpperCase(Locale.ROOT);
-            return ETF_POOL_FALLBACK.stream()
-                    .filter(item -> item.getSymbol().toUpperCase(Locale.ROOT).contains(q)
-                            || item.getName().toUpperCase(Locale.ROOT).contains(q))
-                    .limit(limit)
-                    .toList();
-        }
+        String q = query.trim().toUpperCase(Locale.ROOT);
+        List<String> tokens = Arrays.stream(q.split("\\s+"))
+                .filter(token -> token.length() >= 2)
+                .toList();
+        return ETF_POOL_FALLBACK.stream()
+                .filter(item -> matchesPoolQuery(item, q, tokens))
+                .limit(Math.max(1, limit))
+                .toList();
     }
 
-    @SuppressWarnings({ "unchecked", "rawtypes" })
-    private void fetchFromStooq(List<String> symbols, Map<String, QuoteResponse> result, boolean debugEnabled) {
+    private boolean matchesPoolQuery(EtfPoolItemResponse item, String query, List<String> tokens) {
+        String haystack = poolSearchHaystack(item);
+        if (haystack.contains(query)) {
+            return true;
+        }
+        return !tokens.isEmpty() && tokens.stream().allMatch(haystack::contains);
+    }
+
+    private String poolSearchHaystack(EtfPoolItemResponse item) {
+        String symbol = item.getSymbol() == null ? "" : item.getSymbol();
+        String name = item.getName() == null ? "" : item.getName();
+        String isin = KNOWN_ISINS.getOrDefault(symbol.toUpperCase(Locale.ROOT), "");
+        return (symbol + " " + name + " " + isin).toUpperCase(Locale.ROOT);
+    }
+
+    private void fetchFromDelayed(List<String> symbols, Map<String, QuoteResponse> result, boolean debugEnabled) {
         boolean fallbackPricesEnabled = isFallbackPricesEnabled();
         Map<String, Double> fallbackPrices = getFallbackPrices();
         long now = System.currentTimeMillis();
         for (String symbol : symbols) {
-            try {
-                String canonicalRequested = canonicalSymbol(symbol);
-                String stooqSymbol = STOOQ_SYMBOLS.getOrDefault(canonicalRequested,
-                        symbol.toLowerCase(Locale.ROOT));
-                String url = "https://stooq.com/q/l/?s=" + stooqSymbol + "&f=sd2t2ohlcvn&e=json";
-
-                HttpHeaders headers = new HttpHeaders();
-                headers.set("User-Agent", "Mozilla/5.0 (compatible; ETFTracker/1.0)");
-                headers.set("Accept", "application/json,text/plain,*/*");
-                HttpEntity<String> entity = new HttpEntity<>(headers);
-
-                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
-                String body = response.getBody();
-
-                if (body == null || body.isBlank()) {
-                    putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled, fallbackPrices);
-                    continue;
-                }
-
-                if (body.toLowerCase(Locale.ROOT).contains("exceeded the daily hits limit")) {
-                    log.warn("Stooq daily limit reached. Falling back to Yahoo for {}", symbol);
-                    putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled, fallbackPrices);
-                    continue;
-                }
-
-                Matcher symbolMatcher = STOOQ_SYMBOL_PATTERN.matcher(body);
-                Matcher closeMatcher = STOOQ_CLOSE_PATTERN.matcher(body);
-                if (!symbolMatcher.find() || !closeMatcher.find()) {
-                    putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled, fallbackPrices);
-                    continue;
-                }
-
-                String rawResolvedSymbol = symbolMatcher.group(1);
-                String resolvedSymbol = REVERSE_SYMBOLS.getOrDefault(
-                        rawResolvedSymbol.toUpperCase(Locale.ROOT),
-                        symbol);
-
-                String closeValue = closeMatcher.group(1);
-                if (!"N/D".equalsIgnoreCase(closeValue)) {
-                    double price = Double.parseDouble(closeValue);
-                    Double ter = resolveTer(resolvedSymbol, null);
-                    String terSource = ter != null ? "fallback" : null;
-                    if (ter == null) {
-                        TerLookup fetchedTer = fetchTerFromYahoo(resolvedSymbol);
-                        if (fetchedTer != null && fetchedTer.ter() != null) {
-                            ter = fetchedTer.ter();
-                            terSource = fetchedTer.source();
-                            maybePersistTerFallback(resolvedSymbol, ter);
-                        }
-                    }
-
-                    cache.put(symbol,
-                            new CacheEntry(price, now, ter, "stooq", stooqSymbol.toUpperCase(Locale.ROOT), terSource));
-                    result.put(symbol, createQuote(symbol, price, "live", ter, debugEnabled,
-                            "stooq", stooqSymbol.toUpperCase(Locale.ROOT), terSource));
-                } else {
-                    putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled, fallbackPrices);
-                }
-            } catch (Exception e) {
-                log.warn("Stooq request failed for {}: {}", symbol, e.getMessage());
-                putYahooOrDemo(symbol, result, now, debugEnabled, fallbackPricesEnabled, fallbackPrices);
-            }
+            putDelayedOrFallback(symbol, result, now, debugEnabled, fallbackPricesEnabled, fallbackPrices);
         }
-
         for (String sym : symbols) {
+            if (result.containsKey(sym)) {
+                continue;
+            }
             if (fallbackPricesEnabled) {
                 String canonical = canonicalSymbol(sym);
-                result.computeIfAbsent(sym,
-                        s -> createQuote(s,
-                                fallbackPrices.getOrDefault(s.toUpperCase(Locale.ROOT),
-                                        fallbackPrices.getOrDefault(canonical, 0.0)),
-                                "demo", resolveTer(s, null), debugEnabled,
-                                "fallback", "fallback-static", "fallback"));
+                result.put(sym, createQuote(sym,
+                        fallbackPrices.getOrDefault(sym.toUpperCase(Locale.ROOT),
+                                fallbackPrices.getOrDefault(canonical, 0.0)),
+                        "fallback", resolveTer(sym, null), debugEnabled,
+                        "fallback", "fallback-static", "fallback"));
             } else {
-                result.computeIfAbsent(sym,
-                        s -> createQuote(s, 0.0, "unavailable", resolveTer(s, null), debugEnabled,
-                                "unavailable", "-", "-"));
+                result.put(sym, createQuote(sym, 0.0, "unavailable", resolveTer(sym, null), debugEnabled,
+                        "unavailable", "-", "-"));
             }
         }
     }
 
-    private void putYahooOrDemo(String symbol, Map<String, QuoteResponse> result, long now, boolean debugEnabled,
-            boolean fallbackPricesEnabled, Map<String, Double> fallbackPrices) {
-        YahooResult yahooResult = fetchFromYahoo(symbol);
-        if (yahooResult != null) {
-            Double ter = resolveTer(symbol, yahooResult.ter());
-            String terSource = yahooResult.ter() != null && yahooResult.ter() > 0
-                    ? (yahooResult.terSource() != null ? yahooResult.terSource() : "provider")
-                    : "fallback";
-
-            if (yahooResult.ter() != null && yahooResult.ter() > 0) {
-                maybePersistTerFallback(symbol, yahooResult.ter());
-            }
-
-            cache.put(symbol,
-                    new CacheEntry(yahooResult.price(), now, ter, "yahoo", yahooResult.providerSymbol(), terSource));
-            result.put(symbol, createQuote(symbol, yahooResult.price(), "live", ter, debugEnabled,
-                    "yahoo", yahooResult.providerSymbol(), terSource));
+    private void putDelayedOrFallback(String symbol, Map<String, QuoteResponse> result, long now,
+            boolean debugEnabled, boolean fallbackPricesEnabled, Map<String, Double> fallbackPrices) {
+        String isin = resolveIsin(symbol);
+        DeutscheBoerseDelayedClient.DelayedQuote delayed = delayedQuoteClient.fetchLastPrice(isin);
+        if (delayed != null) {
+            TerLookup terLookup = resolveLiveTer(symbol);
+            Instant asOf = delayed.tradeTime() != null ? delayed.tradeTime() : Instant.ofEpochMilli(now);
+            cache.put(symbol, new CacheEntry(delayed.price(), now, terLookup.ter(), "dbg-delayed",
+                    isin, terLookup.source(), asOf));
+            result.put(symbol, createQuote(symbol, delayed.price(), "delayed", terLookup.ter(), debugEnabled,
+                    "dbg-delayed", isin, terLookup.source(), asOf));
             return;
         }
-
         if (!fallbackPricesEnabled) {
             result.put(symbol, createQuote(symbol, 0.0, "unavailable",
                     resolveTer(symbol, null), debugEnabled, "unavailable", "-", "-"));
             return;
         }
-
         String canonical = canonicalSymbol(symbol);
         double fallbackPrice = fallbackPrices.getOrDefault(symbol.toUpperCase(Locale.ROOT),
                 fallbackPrices.getOrDefault(canonical, 0.0));
         result.put(symbol, createQuote(symbol, fallbackPrice, "fallback",
                 resolveTer(symbol, null), debugEnabled, "fallback", "fallback-static", "fallback"));
-    }
-
-    private YahooResult fetchFromYahoo(String symbol) {
-        if (symbol == null || symbol.isBlank()) {
-            return null;
-        }
-
-        for (String candidate : buildYahooCandidates(symbol)) {
-            YahooResult hit = fetchFromYahooCandidate(candidate);
-            if (hit != null) {
-                return hit;
-            }
-        }
-
-        return null;
-    }
-
-    private MarketRiskResponse fetchRiskMetric(String symbol) {
-        if (symbol == null || symbol.isBlank()) {
-            return null;
-        }
-
-        for (String candidate : buildYahooCandidates(symbol)) {
-            RiskComputation computation = fetchRiskFromYahooCandidate(candidate);
-            if (computation != null) {
-                return new MarketRiskResponse(
-                        symbol.trim().toUpperCase(Locale.ROOT),
-                        computation.volatilityPct(),
-                        computation.drawdownPct(),
-                        computation.riskScore(),
-                        computation.riskLevel(),
-                        computation.sampleDays());
-            }
-        }
-
-        return null;
-    }
-
-    private RiskComputation fetchRiskFromYahooCandidate(String symbol) {
-        try {
-            String encoded = URLEncoder.encode(symbol, StandardCharsets.UTF_8);
-            String url = "https://query1.finance.yahoo.com/v8/finance/chart/" + encoded + "?interval=1d&range=6mo";
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36");
-            headers.set("Accept", "application/json");
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-
-            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                    url,
-                    HttpMethod.GET,
-                    entity,
-                    new ParameterizedTypeReference<>() {
-                    });
-            Map<String, Object> body = response.getBody();
-            if (body == null || !(body.get("chart") instanceof Map<?, ?> chart)) {
-                return null;
-            }
-
-            Object resultObj = chart.get("result");
-            if (!(resultObj instanceof List<?> results) || results.isEmpty()) {
-                return null;
-            }
-
-            Object first = results.get(0);
-            if (!(first instanceof Map<?, ?> resultMap)) {
-                return null;
-            }
-
-            Object indicatorsObj = resultMap.get("indicators");
-            if (!(indicatorsObj instanceof Map<?, ?> indicators)) {
-                return null;
-            }
-
-            Object quoteObj = indicators.get("quote");
-            if (!(quoteObj instanceof List<?> quotes) || quotes.isEmpty()) {
-                return null;
-            }
-
-            Object firstQuote = quotes.get(0);
-            if (!(firstQuote instanceof Map<?, ?> quoteMap)) {
-                return null;
-            }
-
-            Object closeObj = quoteMap.get("close");
-            if (!(closeObj instanceof List<?> closesRaw)) {
-                return null;
-            }
-
-            List<Double> closes = closesRaw.stream()
-                    .filter(Objects::nonNull)
-                    .map(value -> {
-                        try {
-                            return Double.parseDouble(value.toString());
-                        } catch (NumberFormatException ignored) {
-                            return null;
-                        }
-                    })
-                    .filter(Objects::nonNull)
-                    .filter(value -> value > 0)
-                    .toList();
-
-            if (closes.size() > RISK_LOOKBACK_DAYS) {
-                closes = closes.subList(closes.size() - RISK_LOOKBACK_DAYS, closes.size());
-            }
-
-            return computeRiskMetrics(closes);
-        } catch (Exception e) {
-            log.debug("Yahoo risk lookup failed for {}: {}", symbol, e.getMessage());
-            return null;
-        }
-    }
-
-    private RiskComputation computeRiskMetrics(List<Double> closes) {
-        if (closes == null || closes.size() < 30) {
-            return null;
-        }
-
-        List<Double> dailyReturns = new ArrayList<>();
-        double rollingPeak = closes.get(0);
-        double currentDrawdownPct = 0;
-
-        for (int index = 1; index < closes.size(); index += 1) {
-            double previous = closes.get(index - 1);
-            double current = closes.get(index);
-            if (previous > 0 && current > 0) {
-                dailyReturns.add((current / previous) - 1);
-            }
-
-            rollingPeak = Math.max(rollingPeak, current);
-            if (rollingPeak > 0) {
-                currentDrawdownPct = Math.max(0, ((rollingPeak - current) / rollingPeak) * 100);
-            }
-        }
-
-        if (dailyReturns.size() < 20) {
-            return null;
-        }
-
-        double mean = dailyReturns.stream().mapToDouble(Double::doubleValue).average().orElse(0);
-        double variance = dailyReturns.stream()
-                .mapToDouble(value -> Math.pow(value - mean, 2))
-                .average()
-                .orElse(0);
-        double volatilityPct = Math.sqrt(Math.max(variance, 0)) * Math.sqrt(252) * 100;
-
-        int volatilityScore = (int) Math.round(Math.min(100, (volatilityPct / 40.0) * 100));
-        int drawdownScore = (int) Math.round(Math.min(100, (currentDrawdownPct / 30.0) * 100));
-        int riskScore = (int) Math.round((volatilityScore * 0.7) + (drawdownScore * 0.3));
-
-        String riskLevel;
-        if (riskScore < 30) {
-            riskLevel = "konservativ";
-        } else if (riskScore < 60) {
-            riskLevel = "moderat";
-        } else {
-            riskLevel = "spekulativ";
-        }
-
-        return new RiskComputation(
-                roundTo(volatilityPct, 1),
-                roundTo(currentDrawdownPct, 1),
-                riskScore,
-                riskLevel,
-                closes.size());
-    }
-
-    private double roundTo(double value, int decimals) {
-        double factor = Math.pow(10, decimals);
-        return Math.round(value * factor) / factor;
-    }
-
-    private YahooResult fetchFromYahooCandidate(String symbol) {
-        try {
-            String encoded = URLEncoder.encode(symbol, StandardCharsets.UTF_8);
-            String url = "https://query1.finance.yahoo.com/v8/finance/chart/" + encoded + "?interval=1d&range=1d";
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36");
-            headers.set("Accept", "application/json");
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-
-            ResponseEntity<Map> response = restTemplate.exchange(url, HttpMethod.GET, entity, Map.class);
-            Map<String, Object> body = response.getBody();
-            if (body == null || !(body.get("chart") instanceof Map<?, ?> chart)) {
-                return null;
-            }
-
-            Object resultObj = chart.get("result");
-            if (!(resultObj instanceof List<?> results) || results.isEmpty()) {
-                return null;
-            }
-
-            Object first = results.get(0);
-            if (!(first instanceof Map<?, ?> resultMap)) {
-                return null;
-            }
-
-            Object metaObj = resultMap.get("meta");
-            if (!(metaObj instanceof Map<?, ?> meta)) {
-                return null;
-            }
-
-            Object marketPrice = meta.get("regularMarketPrice");
-            if (marketPrice == null) {
-                return null;
-            }
-            double price = Double.parseDouble(marketPrice.toString());
-
-            // Extract TER – Yahoo stores expense ratio as fraction (0.002 = 0.2%)
-            Double ter = null;
-            String terSource = null;
-            Object expRatioObj = meta.get("annualReportExpenseRatio");
-            if (expRatioObj == null) {
-                expRatioObj = meta.get("expenseRatio");
-            }
-            ter = normalizeTer(expRatioObj);
-            if (ter != null) {
-                terSource = "yahoo-chart-meta";
-            } else {
-                TerLookup fallbackTer = fetchTerFromYahooSummary(symbol);
-                if (fallbackTer != null) {
-                    ter = fallbackTer.ter();
-                    terSource = fallbackTer.source();
-                }
-            }
-
-            return new YahooResult(price, ter, symbol, terSource);
-        } catch (Exception e) {
-            log.debug("Yahoo chart fallback failed for {}: {}", symbol, e.getMessage());
-            return null;
-        }
-    }
-
-    private TerLookup fetchTerFromYahoo(String symbol) {
-        if (symbol == null || symbol.isBlank()) {
-            return null;
-        }
-
-        for (String candidate : buildYahooCandidates(symbol)) {
-            TerLookup hit = fetchTerFromYahooSummary(candidate);
-            if (hit != null && hit.ter() != null) {
-                return hit;
-            }
-        }
-
-        return null;
-    }
-
-    @SuppressWarnings({ "unchecked", "rawtypes" })
-    private TerLookup fetchTerFromYahooSummary(String symbol) {
-        try {
-            String encoded = URLEncoder.encode(symbol, StandardCharsets.UTF_8);
-            String url = "https://query1.finance.yahoo.com/v10/finance/quoteSummary/" + encoded
-                    + "?modules=fundProfile,summaryDetail,defaultKeyStatistics";
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36");
-            headers.set("Accept", "application/json");
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-
-            ResponseEntity<Map> response = restTemplate.exchange(url, HttpMethod.GET, entity, Map.class);
-            Map<String, Object> body = response.getBody();
-            if (body == null || !(body.get("quoteSummary") instanceof Map<?, ?> quoteSummary)) {
-                return null;
-            }
-
-            Object resultObj = quoteSummary.get("result");
-            if (!(resultObj instanceof List<?> results) || results.isEmpty()) {
-                return null;
-            }
-
-            Object first = results.get(0);
-            if (!(first instanceof Map<?, ?> resultMap)) {
-                return null;
-            }
-
-            Object summaryDetailObj = resultMap.get("summaryDetail");
-            if (summaryDetailObj instanceof Map<?, ?> summaryDetail) {
-                Double ter = extractTerFromMap(summaryDetail);
-                if (ter != null) {
-                    return new TerLookup(ter, "yahoo-summaryDetail");
-                }
-            }
-
-            Object fundProfileObj = resultMap.get("fundProfile");
-            if (fundProfileObj instanceof Map<?, ?> fundProfile) {
-                Double ter = extractTerFromMap(fundProfile);
-                if (ter != null) {
-                    return new TerLookup(ter, "yahoo-fundProfile");
-                }
-            }
-
-            Object statsObj = resultMap.get("defaultKeyStatistics");
-            if (statsObj instanceof Map<?, ?> stats) {
-                Double ter = extractTerFromMap(stats);
-                if (ter != null) {
-                    return new TerLookup(ter, "yahoo-defaultKeyStatistics");
-                }
-            }
-
-            return null;
-        } catch (Exception e) {
-            log.debug("Yahoo TER summary lookup failed for {}: {}", symbol, e.getMessage());
-            return null;
-        }
-    }
-
-    private Set<String> buildYahooCandidates(String symbol) {
-        String normalized = symbol.trim().toUpperCase(Locale.ROOT);
-        String canonical = canonicalSymbol(normalized);
-        LinkedHashSet<String> candidates = new LinkedHashSet<>();
-
-        String preferred = YAHOO_SYMBOLS.get(canonical);
-        if (preferred != null && !preferred.isBlank()) {
-            candidates.add(preferred);
-        }
-
-        String preferredExact = YAHOO_SYMBOLS.get(normalized);
-        if (preferredExact != null && !preferredExact.isBlank()) {
-            candidates.add(preferredExact);
-        }
-
-        candidates.add(normalized);
-        candidates.add(canonical);
-
-        if (normalized.contains(".")) {
-            String base = normalized.substring(0, normalized.indexOf('.'));
-            candidates.add(base);
-        }
-
-        candidates.add(normalized + ".DE");
-        candidates.add(normalized + ".F");
-        candidates.add(normalized + ".L");
-        candidates.add(canonical + ".DE");
-        candidates.add(canonical + ".F");
-        candidates.add(canonical + ".L");
-
-        return candidates;
     }
 
     private String canonicalSymbol(String symbol) {
@@ -793,96 +356,125 @@ public class MarketDataService {
         return appSettingService.getBoolean("market.fallbackPricesEnabled", fallbackPricesEnabledDefault);
     }
 
-    private Double extractTerFromMap(Map<?, ?> map) {
-        if (map == null || map.isEmpty()) {
+    private TerLookup resolveLiveTer(String symbol) {
+        Double cachedTer = resolveTer(symbol, null);
+        MarketCache row = loadOne(symbol);
+        if (row != null && row.getTer() != null && row.getTer() > 0
+                && ageMs(row.getTerFetchedAt(), System.currentTimeMillis()) < terTtlMs) {
+            return new TerLookup(row.getTer(), row.getTerSource() != null ? row.getTerSource() : "cached");
+        }
+        return new TerLookup(cachedTer, cachedTer != null ? "fallback" : null);
+    }
+
+    private Map<String, MarketCache> loadPersisted(List<String> symbols) {
+        if (symbols == null || symbols.isEmpty()) {
+            return Map.of();
+        }
+        List<String> keys = symbols.stream()
+                .map(symbol -> symbol.toUpperCase(Locale.ROOT))
+                .distinct()
+                .toList();
+        Map<String, MarketCache> bySymbol = new HashMap<>();
+        for (MarketCache row : marketCacheRepository.findAllById(keys)) {
+            bySymbol.put(row.getSymbol(), row);
+        }
+        return bySymbol;
+    }
+
+    private MarketCache loadOne(String symbol) {
+        if (symbol == null || symbol.isBlank()) {
             return null;
         }
+        return marketCacheRepository.findById(symbol.trim().toUpperCase(Locale.ROOT)).orElse(null);
+    }
 
-        List<String> keys = List.of(
-                "annualReportExpenseRatio",
-                "expenseRatio",
-                "netExpenseRatio",
-                "managementExpenseRatio");
-
-        for (String key : keys) {
-            Object value = map.get(key);
-            Double ter = normalizeTer(value);
-            if (ter != null) {
-                return ter;
+    private void persistQuotes(List<String> symbols, Map<String, QuoteResponse> result,
+            Map<String, MarketCache> existing) {
+        for (String symbol : symbols) {
+            QuoteResponse quote = result.get(symbol);
+            if (quote == null || quote.price() <= 0) {
+                continue;
             }
-
-            if (value instanceof Map<?, ?> nested) {
-                ter = normalizeTer(nested.get("raw"));
-                if (ter != null) {
-                    return ter;
+            CacheEntry entry = cache.get(symbol);
+            String key = symbol.toUpperCase(Locale.ROOT);
+            MarketCache row = existing.getOrDefault(key, new MarketCache(key));
+            row.setPrice(quote.price());
+            row.setQuoteFetchedAt(Instant.now());
+            if (entry != null) {
+                row.setPriceProvider(entry.provider());
+                row.setProviderSymbol(entry.providerSymbol());
+                row.setTer(entry.ter());
+                row.setTerSource(entry.terSource());
+                if (entry.ter() != null && entry.ter() > 0) {
+                    row.setTerFetchedAt(Instant.now());
+                }
+                if ("dbg-delayed".equals(entry.provider()) && entry.providerSymbol() != null
+                        && entry.providerSymbol().length() >= 12) {
+                    row.setIsin(entry.providerSymbol());
                 }
             }
+            if (row.getIsin() == null) {
+                row.setIsin(resolveIsin(symbol));
+            }
+            marketCacheRepository.save(row);
         }
+    }
 
+    private CacheEntry hydrateMemory(String symbol, MarketCache row, long now) {
+        Instant asOf = row.getQuoteFetchedAt() != null ? row.getQuoteFetchedAt() : Instant.ofEpochMilli(now);
+        CacheEntry entry = new CacheEntry(
+                row.getPrice(),
+                now,
+                row.getTer(),
+                row.getPriceProvider(),
+                row.getProviderSymbol(),
+                row.getTerSource(),
+                asOf);
+        cache.put(symbol, entry);
+        return entry;
+    }
+
+    private QuoteResponse quoteFromEntry(String symbol, CacheEntry entry, String source, boolean debugEnabled) {
+        return createQuote(symbol, entry.price(), source, resolveTer(symbol, entry.ter()), debugEnabled,
+                entry.provider(), entry.providerSymbol(), entry.terSource(), entry.asOf());
+    }
+
+    private long ageMs(Instant fetchedAt, long nowMs) {
+        if (fetchedAt == null) {
+            return Long.MAX_VALUE;
+        }
+        return Math.max(0, nowMs - fetchedAt.toEpochMilli());
+    }
+
+    private String resolveIsin(String symbol) {
+        MarketCache row = loadOne(symbol);
+        if (row != null && row.getIsin() != null && !row.getIsin().isBlank()) {
+            return row.getIsin();
+        }
+        String canonical = canonicalSymbol(symbol);
+        String known = KNOWN_ISINS.get(canonical);
+        if (known != null) {
+            return known;
+        }
+        if (canonical.length() == 12) {
+            return canonical;
+        }
         return null;
     }
 
-    private Double normalizeTer(Object value) {
-        Double raw = extractDouble(value);
-        if (raw == null || raw <= 0) {
-            return null;
-        }
-
-        if (raw < 1) {
-            return roundTwo(raw * 100);
-        }
-
-        if (raw <= 100) {
-            return roundTwo(raw);
-        }
-
-        return null;
-    }
-
-    private Double extractDouble(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number n) {
-            return n.doubleValue();
-        }
-        if (value instanceof Map<?, ?> nested) {
-            Object raw = nested.get("raw");
-            if (raw instanceof Number rn) {
-                return rn.doubleValue();
-            }
-            if (raw != null) {
-                try {
-                    return Double.parseDouble(raw.toString());
-                } catch (NumberFormatException ignored) {
-                    return null;
-                }
-            }
-            return null;
-        }
-        try {
-            return Double.parseDouble(value.toString());
-        } catch (NumberFormatException ignored) {
-            return null;
-        }
-    }
-
-    private double roundTwo(double value) {
-        return Math.round(value * 100.0) / 100.0;
-    }
-
-    private void maybePersistTerFallback(String symbol, Double providerTer) {
-        if (symbol == null || symbol.isBlank() || providerTer == null || providerTer <= 0) {
+    private void scheduleQuoteRefresh(String symbol) {
+        if (!inFlightQuoteRefresh.add(symbol)) {
             return;
         }
-
-        String normalized = symbol.trim().toUpperCase(Locale.ROOT);
-        Double existing = terFallbacks.get(normalized);
-        if (existing != null && Math.abs(existing - providerTer) < 0.005) {
-            return;
-        }
-
-        upsertTerFallback(normalized, providerTer);
+        refreshExecutor.execute(() -> {
+            try {
+                getQuotes(List.of(symbol), true, false);
+            } catch (Exception e) {
+                log.debug("Background quote refresh failed for {}: {}", symbol, e.getMessage());
+            } finally {
+                inFlightQuoteRefresh.remove(symbol);
+            }
+        });
     }
 
     private QuoteResponse createQuote(
@@ -894,8 +486,23 @@ public class MarketDataService {
             String provider,
             String providerSymbol,
             String terSource) {
+        return createQuote(symbol, price, source, ter, debugEnabled, provider, providerSymbol, terSource, Instant.now());
+    }
+
+    private QuoteResponse createQuote(
+            String symbol,
+            double price,
+            String source,
+            Double ter,
+            boolean debugEnabled,
+            String provider,
+            String providerSymbol,
+            String terSource,
+            Instant asOf) {
+        Instant resolvedAsOf = (asOf != null ? asOf : Instant.now()).truncatedTo(ChronoUnit.MILLIS);
+        String asOfValue = resolvedAsOf.toString();
         if (!debugEnabled) {
-            return new QuoteResponse(symbol, price, source, ter);
+            return new QuoteResponse(symbol, price, source, ter, asOfValue, null);
         }
 
         Map<String, String> debug = new LinkedHashMap<>();
@@ -903,7 +510,7 @@ public class MarketDataService {
         debug.put("providerSymbol", providerSymbol == null ? "-" : providerSymbol);
         debug.put("terSource", terSource == null ? "-" : terSource);
 
-        return new QuoteResponse(symbol, price, source, ter, debug);
+        return new QuoteResponse(symbol, price, source, ter, asOfValue, debug);
     }
 
     private void useFallback(List<String> symbols, Map<String, QuoteResponse> result) {
@@ -1024,7 +631,7 @@ public class MarketDataService {
 
             List<String> lines = new ArrayList<>();
             lines.add("# TER fallback values in percent (e.g. 0.22 = 0.22%)");
-            lines.add("# Auto-updated values are persisted by the backend scheduler.");
+            lines.add("# Maintain values manually. External TER scrapes are disabled.");
             lines.add("");
             props.stringPropertyNames().stream()
                     .sorted()
@@ -1038,18 +645,23 @@ public class MarketDataService {
         }
     }
 
-    @SuppressWarnings({ "unchecked", "rawtypes" })
     public Map<String, Object> getRawResponse(String symbolParam) {
-        String url = "https://stooq.com/q/l/?s=" + symbolParam + "&f=sd2t2ohlcvn&e=json";
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent", "Mozilla/5.0 (compatible; ETFTracker/1.0)");
-            headers.set("Accept", "application/json");
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-            ResponseEntity<Map> response = restTemplate.exchange(url, HttpMethod.GET, entity, Map.class);
-            return response.getBody();
-        } catch (Exception e) {
-            return Map.of("error", e.getMessage());
+        if (symbolParam == null || symbolParam.isBlank()) {
+            return Map.of("error", "invalid-symbol");
         }
+        String isin = resolveIsin(symbolParam);
+        DeutscheBoerseDelayedClient.DelayedQuote delayed = delayedQuoteClient.fetchLastPrice(isin);
+        if (delayed == null) {
+            return Map.of("symbol", symbolParam, "isin", isin == null ? "" : isin, "source", "delayed", "found", false);
+        }
+        return Map.of(
+                "symbol", symbolParam,
+                "isin", isin == null ? "" : isin,
+                "source", "delayed",
+                "found", true,
+                "price", delayed.price(),
+                "asOf", delayed.tradeTime() == null ? "" : delayed.tradeTime().toString(),
+                "venue", delayed.venue() == null ? "" : delayed.venue(),
+                "feed", delayed.feed() == null ? "" : delayed.feed());
     }
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Box, Drawer, List, ListItemButton, ListItemIcon, ListItemText, AppBar, Toolbar, Typography, Button, Chip, Divider, Tooltip, IconButton } from "@mui/material";
+import { Alert, Box, Drawer, List, ListItemButton, ListItemIcon, ListItemText, AppBar, Toolbar, Typography, Button, Chip, Divider, Tooltip, IconButton, useMediaQuery } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import PieChartIcon from "@mui/icons-material/PieChart";
@@ -7,10 +8,13 @@ import TableChartIcon from "@mui/icons-material/TableChart";
 import PersonIcon from "@mui/icons-material/Person";
 import LogoutIcon from "@mui/icons-material/Logout";
 import SettingsIcon from "@mui/icons-material/Settings";
+import MenuIcon from "@mui/icons-material/Menu";
 import GavelIcon from "@mui/icons-material/Gavel";
 import PrivacyTipIcon from "@mui/icons-material/PrivacyTip";
 import DescriptionIcon from "@mui/icons-material/Description";
 import { apiGet, apiPost } from "./apiClient";
+import { useI18n } from "./i18n";
+import LanguageToggle from "./LanguageToggle";
 
 const drawerWidth = 240;
 const DEFAULT_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
@@ -19,8 +23,12 @@ const DEFAULT_INACTIVITY_WARNING_MS = 28 * 60 * 1000;
 const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
 
 export default function DashboardLayout({ children, currentUser, onLogout }) {
+  const { t } = useI18n();
+  const theme = useTheme();
+  const isCompact = useMediaQuery(theme.breakpoints.down("md"));
   const navigate = useNavigate();
   const location = useLocation();
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [inactiveElapsedMs, setInactiveElapsedMs] = useState(0);
   const [inactivityTimeoutMs, setInactivityTimeoutMs] = useState(DEFAULT_INACTIVITY_TIMEOUT_MS);
   const [inactivityWarningMs, setInactivityWarningMs] = useState(DEFAULT_INACTIVITY_WARNING_MS);
@@ -30,29 +38,35 @@ export default function DashboardLayout({ children, currentUser, onLogout }) {
 
   const roles = Array.isArray(currentUser?.roles) ? currentUser.roles : [];
   const canAccessAdmin = roles.includes("ADMIN") || roles.includes("READONLY_ADMIN");
+  const passwordExpired = Boolean(currentUser?.passwordExpired);
+  const passwordExpiresSoon = Boolean(currentUser?.passwordExpiresSoon);
 
   const currentPath = location.pathname;
   const currentPageLabel =
     currentPath === "/dashboard"
-      ? "Uebersicht"
+      ? t("nav.overview")
       : currentPath === "/portfolio"
-      ? "Portfolio"
+      ? t("nav.portfolio")
       : currentPath === "/etfs"
-      ? "ETF-Liste"
+      ? t("nav.etfList")
       : currentPath === "/performance"
-      ? "Performance"
+      ? t("nav.performance")
       : currentPath === "/me"
-      ? "Meine Daten"
+      ? t("nav.myData")
       : currentPath === "/admin"
-      ? "Admin"
-      : "Dashboard";
+      ? t("nav.admin")
+      : t("nav.overview");
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
 
   const handleLogout = useCallback(async () => {
     clearTimeout(logoutTimerRef.current);
     clearInterval(tickerRef.current);
     try {
       await apiPost("/auth/logout", null, {
-        fallbackMessage: "Logout fehlgeschlagen."
+        fallbackMessage: t("nav.logoutFailed")
       });
     } finally {
       onLogout?.();
@@ -74,7 +88,7 @@ export default function DashboardLayout({ children, currentUser, onLogout }) {
     const loadInactivitySettings = async () => {
       try {
         const payload = await apiGet("/api/settings/inactivity", {
-          fallbackMessage: "Inaktivitaets-Einstellungen konnten nicht geladen werden."
+          fallbackMessage: t("nav.inactivityLoadFailed")
         });
         const timeoutMinutes = Number.parseInt(String(payload?.timeoutMinutes ?? ""), 10);
         const warningMinutes = Number.parseInt(String(payload?.warningMinutes ?? ""), 10);
@@ -128,13 +142,98 @@ export default function DashboardLayout({ children, currentUser, onLogout }) {
   const elapsedText = `${pad2(elapsedMinutes)}:${pad2(elapsedSeconds)}`;
   const remainingText = `${pad2(remainingMinutes)}:${pad2(remainingSeconds)}`;
 
+  const drawerContent = (
+    <>
+      <Toolbar />
+      <List>
+        <ListItemButton
+          component={Link}
+          to="/dashboard"
+          selected={currentPath === "/dashboard"}
+          disabled={passwordExpired}
+        >
+          <ListItemIcon><DashboardIcon /></ListItemIcon>
+          <ListItemText primary={t("nav.overview")} />
+        </ListItemButton>
+
+        <ListItemButton
+          component={Link}
+          to="/portfolio"
+          selected={currentPath === "/portfolio"}
+          disabled={passwordExpired}
+        >
+          <ListItemIcon><PieChartIcon /></ListItemIcon>
+          <ListItemText primary={t("nav.portfolio")} />
+        </ListItemButton>
+
+        <ListItemButton
+          component={Link}
+          to="/etfs"
+          selected={currentPath === "/etfs"}
+          disabled={passwordExpired}
+        >
+          <ListItemIcon><TableChartIcon /></ListItemIcon>
+          <ListItemText primary={t("nav.etfList")} />
+        </ListItemButton>
+
+        <ListItemButton
+          component={Link}
+          to="/performance"
+          selected={currentPath === "/performance"}
+          disabled={passwordExpired}
+        >
+          <ListItemIcon><DashboardIcon /></ListItemIcon>
+          <ListItemText primary={t("nav.performance")} />
+        </ListItemButton>
+
+        {canAccessAdmin && (
+          <ListItemButton
+            component={Link}
+            to="/admin"
+            selected={currentPath === "/admin"}
+            disabled={passwordExpired}
+          >
+            <ListItemIcon><SettingsIcon /></ListItemIcon>
+            <ListItemText primary={t("nav.admin")} />
+          </ListItemButton>
+        )}
+      </List>
+
+      <Box sx={{ flexGrow: 1 }} />
+      <Divider />
+      <List sx={{ pb: 1 }}>
+        <ListItemButton component={Link} to="/legal/impressum" selected={currentPath === "/legal/impressum"}>
+          <ListItemIcon sx={{ minWidth: 34 }}><GavelIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary={t("nav.impressum")} primaryTypographyProps={{ fontSize: "0.88rem" }} />
+        </ListItemButton>
+
+        <ListItemButton component={Link} to="/legal/datenschutz" selected={currentPath === "/legal/datenschutz"}>
+          <ListItemIcon sx={{ minWidth: 34 }}><PrivacyTipIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary={t("nav.privacy")} primaryTypographyProps={{ fontSize: "0.88rem" }} />
+        </ListItemButton>
+
+        <ListItemButton component={Link} to="/legal/cookies" selected={currentPath === "/legal/cookies"}>
+          <ListItemIcon sx={{ minWidth: 34 }}><PrivacyTipIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary={t("nav.cookies")} primaryTypographyProps={{ fontSize: "0.88rem" }} />
+        </ListItemButton>
+
+        <ListItemButton component={Link} to="/legal/nutzungsbedingungen" selected={currentPath === "/legal/nutzungsbedingungen"}>
+          <ListItemIcon sx={{ minWidth: 34 }}><DescriptionIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary={t("nav.termsShort")} primaryTypographyProps={{ fontSize: "0.88rem" }} />
+        </ListItemButton>
+      </List>
+    </>
+  );
+
   return (
     <Box sx={{ display: "flex" }}>
-      {/* Sidebar */}
       <Drawer
-        variant="permanent"
+        variant={isCompact ? "temporary" : "permanent"}
+        open={isCompact ? mobileOpen : true}
+        onClose={() => setMobileOpen(false)}
+        ModalProps={{ keepMounted: true }}
         sx={{
-          width: drawerWidth,
+          width: isCompact ? undefined : drawerWidth,
           [`& .MuiDrawer-paper`]: {
             width: drawerWidth,
             boxSizing: "border-box",
@@ -143,105 +242,44 @@ export default function DashboardLayout({ children, currentUser, onLogout }) {
           }
         }}
       >
-        <Toolbar />
-        <List>
-          <ListItemButton
-            component={Link}
-            to="/dashboard"
-            selected={currentPath === "/dashboard"}
-          >
-            <ListItemIcon><DashboardIcon /></ListItemIcon>
-            <ListItemText primary="Uebersicht" />
-          </ListItemButton>
-
-          <ListItemButton
-            component={Link}
-            to="/portfolio"
-            selected={currentPath === "/portfolio"}
-          >
-            <ListItemIcon><PieChartIcon /></ListItemIcon>
-            <ListItemText primary="Portfolio" />
-          </ListItemButton>
-
-          <ListItemButton
-            component={Link}
-            to="/etfs"
-            selected={currentPath === "/etfs"}
-          >
-            <ListItemIcon><TableChartIcon /></ListItemIcon>
-            <ListItemText primary="ETF-Liste" />
-          </ListItemButton>
-
-          <ListItemButton
-            component={Link}
-            to="/performance"
-            selected={currentPath === "/performance"}
-          >
-            <ListItemIcon><DashboardIcon /></ListItemIcon>
-            <ListItemText primary="Performance" />
-          </ListItemButton>
-
-          {canAccessAdmin && (
-            <ListItemButton
-              component={Link}
-              to="/admin"
-              selected={currentPath === "/admin"}
-            >
-              <ListItemIcon><SettingsIcon /></ListItemIcon>
-              <ListItemText primary="Admin" />
-            </ListItemButton>
-          )}
-        </List>
-
-        <Box sx={{ flexGrow: 1 }} />
-        <Divider />
-        <List sx={{ pb: 1 }}>
-          <ListItemButton component={Link} to="/legal/impressum" selected={currentPath === "/legal/impressum"}>
-            <ListItemIcon sx={{ minWidth: 34 }}><GavelIcon fontSize="small" /></ListItemIcon>
-            <ListItemText primary="Impressum" primaryTypographyProps={{ fontSize: "0.88rem" }} />
-          </ListItemButton>
-
-          <ListItemButton component={Link} to="/legal/datenschutz" selected={currentPath === "/legal/datenschutz"}>
-            <ListItemIcon sx={{ minWidth: 34 }}><PrivacyTipIcon fontSize="small" /></ListItemIcon>
-            <ListItemText primary="Datenschutz" primaryTypographyProps={{ fontSize: "0.88rem" }} />
-          </ListItemButton>
-
-          <ListItemButton component={Link} to="/legal/cookies" selected={currentPath === "/legal/cookies"}>
-            <ListItemIcon sx={{ minWidth: 34 }}><PrivacyTipIcon fontSize="small" /></ListItemIcon>
-            <ListItemText primary="Cookies" primaryTypographyProps={{ fontSize: "0.88rem" }} />
-          </ListItemButton>
-
-          <ListItemButton component={Link} to="/legal/nutzungsbedingungen" selected={currentPath === "/legal/nutzungsbedingungen"}>
-            <ListItemIcon sx={{ minWidth: 34 }}><DescriptionIcon fontSize="small" /></ListItemIcon>
-            <ListItemText primary="Nutzungsbed." primaryTypographyProps={{ fontSize: "0.88rem" }} />
-          </ListItemButton>
-        </List>
+        {drawerContent}
       </Drawer>
 
-      {/* Top Bar */}
       <AppBar
         position="fixed"
         sx={{
-          ml: `${drawerWidth}px`,
-          width: `calc(100% - ${drawerWidth}px)`,
-          zIndex: (theme) => theme.zIndex.drawer + 1
+          ml: { md: `${drawerWidth}px` },
+          width: { xs: "100%", md: `calc(100% - ${drawerWidth}px)` },
+          zIndex: (appTheme) => appTheme.zIndex.drawer + 1
         }}
       >
         <Toolbar>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexGrow: 1 }}>
+          {isCompact && (
+            <IconButton
+              color="inherit"
+              edge="start"
+              aria-label={t("nav.openMenu")}
+              onClick={() => setMobileOpen(true)}
+              sx={{ mr: 1 }}
+            >
+              <MenuIcon />
+            </IconButton>
+          )}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexGrow: 1, minWidth: 0 }}>
             <Typography
               variant="h6"
               noWrap
               component={Link}
               to="/"
               sx={{
+                display: { xs: "none", sm: "block" },
                 color: "inherit",
                 textDecoration: "none",
                 fontWeight: 700,
                 "&:hover": { textDecoration: "underline" }
               }}
             >
-              ETF-Dashboard
+              {t("legal.brand")}
             </Typography>
             <Chip
               label={currentPageLabel}
@@ -250,7 +288,7 @@ export default function DashboardLayout({ children, currentUser, onLogout }) {
               sx={{ fontWeight: 600 }}
             />
           </Box>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mr: 1.5 }}>
+          <Box sx={{ display: { xs: "none", md: "flex" }, alignItems: "center", gap: 1, mr: 1.5 }}>
             <Typography
               variant="body2"
               sx={{
@@ -261,8 +299,8 @@ export default function DashboardLayout({ children, currentUser, onLogout }) {
               }}
             >
               {warningActive
-                ? `Inaktiv seit ${elapsedText} | Auto-Logout in ${remainingText}`
-                : `Auto-Logout in ${remainingText}`}
+                ? t("nav.inactiveSince", { elapsed: elapsedText, time: remainingText })
+                : t("nav.autoLogoutIn", { time: remainingText })}
             </Typography>
             {warningActive && (
               <Button
@@ -272,11 +310,14 @@ export default function DashboardLayout({ children, currentUser, onLogout }) {
                 sx={{ borderColor: "rgba(255,255,255,0.5)", whiteSpace: "nowrap", fontSize: "0.78rem", py: 0.3 }}
                 onClick={resetInactivityTimer}
               >
-                Angemeldet bleiben
+                {t("nav.staySignedIn")}
               </Button>
             )}
           </Box>
-          <Tooltip title="Meine Daten" arrow>
+          <Box sx={{ mr: 1 }}>
+            <LanguageToggle invert />
+          </Box>
+          <Tooltip title={t("nav.myData")} arrow>
             <IconButton
               color="inherit"
               component={Link}
@@ -286,8 +327,8 @@ export default function DashboardLayout({ children, currentUser, onLogout }) {
               <PersonIcon />
             </IconButton>
           </Tooltip>
-          {canAccessAdmin && (
-            <Tooltip title="Admin" arrow>
+          {canAccessAdmin && !passwordExpired && (
+            <Tooltip title={t("nav.admin")} arrow>
               <IconButton
                 color="inherit"
                 component={Link}
@@ -298,7 +339,18 @@ export default function DashboardLayout({ children, currentUser, onLogout }) {
               </IconButton>
             </Tooltip>
           )}
-          <Tooltip title="Logout" arrow>
+          {isCompact && warningActive && (
+            <Button
+              color="inherit"
+              size="small"
+              variant="outlined"
+              sx={{ mr: 0.5, borderColor: "rgba(255,255,255,0.5)", fontSize: "0.72rem", py: 0.2, minWidth: 0 }}
+              onClick={resetInactivityTimer}
+            >
+              {t("nav.stay")}
+            </Button>
+          )}
+          <Tooltip title={t("nav.logout")} arrow>
             <IconButton color="inherit" onClick={handleLogout}>
               <LogoutIcon />
             </IconButton>
@@ -306,8 +358,17 @@ export default function DashboardLayout({ children, currentUser, onLogout }) {
         </Toolbar>
       </AppBar>
 
-      {/* Content */}
-      <Box component="main" sx={{ flexGrow: 1, p: 3, mt: 8 }}>
+      <Box component="main" sx={{ flexGrow: 1, width: "100%", p: { xs: 2, md: 3 }, mt: 8 }}>
+        {passwordExpired && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {t("nav.passwordExpired")}
+          </Alert>
+        )}
+        {!passwordExpired && passwordExpiresSoon && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {t("nav.passwordExpiresSoon")}
+          </Alert>
+        )}
         {children}
       </Box>
 

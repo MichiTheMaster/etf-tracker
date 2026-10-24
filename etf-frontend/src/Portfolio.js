@@ -3,11 +3,17 @@ import {
   Alert,
   Box,
   Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Grid,
   Paper,
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TableSortLabel,
@@ -18,15 +24,42 @@ import {
 import {
   calculateMetrics,
   fetchPortfolioBenchmarkSettings,
+  fetchMarketQuoteSettings,
   fetchLivePrices,
   formatCurrency,
   formatPercent,
   loadCustomEtfs
 } from "./simulatorStorage";
 import { PortfolioAPI } from "./portfolioAPI";
+import QuoteRefreshStatus, { DEFAULT_QUOTE_REFRESH_SECONDS } from "./QuoteRefreshStatus";
+import { useQuoteRefreshTimer } from "./useQuoteRefreshTimer";
+import { formatDateTime, getLocale, useI18n } from "./i18n";
 
-const AUTO_REFRESH_SECONDS = 60;
-const READY_QUOTE_SOURCES = new Set(["live", "cached"]);
+const FRESH_QUOTE_SOURCES = new Set(["live", "cached", "delayed"]);
+const DISPLAY_QUOTE_SOURCES = new Set(["live", "cached", "delayed", "fallback"]);
+const WARMUP_RETRY_MS = 10_000;
+
+function isPricedQuote(quote, allowedSources) {
+  const price = Number(quote?.price);
+  const source = String(quote?.source || "").toLowerCase();
+  return Number.isFinite(price) && price > 0 && allowedSources.has(source);
+}
+
+function resolveSellPrice(symbol, quotes, holding) {
+  const quotePrice = Number(quotes?.[symbol]?.price);
+  if (Number.isFinite(quotePrice) && quotePrice > 0) {
+    return { price: quotePrice, fromQuote: true };
+  }
+
+  const shares = Number(holding?.shares);
+  const costTotal = Number(holding?.costTotal);
+  const averageCost = shares > 0 ? costTotal / shares : NaN;
+  if (Number.isFinite(averageCost) && averageCost > 0) {
+    return { price: averageCost, fromQuote: false };
+  }
+
+  return { price: null, fromQuote: false };
+}
 
 function calculateBenchmarkReturnPct(annualRatePct, holdingDays) {
   const normalizedAnnualRatePct = Number(annualRatePct);
@@ -40,33 +73,39 @@ function calculateBenchmarkReturnPct(annualRatePct, holdingDays) {
   return (Math.pow(1 + dailyRate, normalizedHoldingDays) - 1) * 100;
 }
 
-function hasValidQuoteCoverage(quoteData, symbols, customSymbols) {
+function hasQuoteCoverage(quoteData, symbols, customSymbols, allowedSources) {
   if (!Array.isArray(symbols) || symbols.length === 0) {
-    return false;
+    return true;
   }
 
   return symbols.every((symbol) => {
     if (customSymbols.has(symbol)) {
       return true;
     }
-
-    const price = quoteData?.[symbol]?.price;
-    const source = String(quoteData?.[symbol]?.source || "").toLowerCase();
-    return Number.isFinite(price) && price > 0 && READY_QUOTE_SOURCES.has(source);
+    return isPricedQuote(quoteData?.[symbol], allowedSources);
   });
 }
 
 export default function Portfolio() {
+  const { t } = useI18n();
   const [state, setState] = useState(null);
   const [sellQuantities, setSellQuantities] = useState({});
+  const [sellConfirm, setSellConfirm] = useState(null);
+  const [sellNotice, setSellNotice] = useState("");
   const [error, setError] = useState("");
   const [quotes, setQuotes] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [countdown, setCountdown] = useState(AUTO_REFRESH_SECONDS);
+  const [refreshSeconds, setRefreshSeconds] = useState(DEFAULT_QUOTE_REFRESH_SECONDS);
+  const [firstRefreshAt, setFirstRefreshAt] = useState(null);
+  const [quotesFetchedAt, setQuotesFetchedAt] = useState(null);
+  const [quotesSettled, setQuotesSettled] = useState(false);
+  const { remaining, deadlineMs, awaitingDelayedTick, applySettings, armAfterFetch, consumeExpire } = useQuoteRefreshTimer();
   const [isLoading, setIsLoading] = useState(true);
   const [benchmarkAnnualRatePct, setBenchmarkAnnualRatePct] = useState(3);
   const [sortConfig, setSortConfig] = useState({ field: "symbol", direction: "asc" });
   const isRefreshingRef = useRef(false);
+  const refreshQuotesRef = useRef(null);
+  const warmupRetryRef = useRef(false);
 
   const [feeTransactionPct, setFeeTransactionPct] = useState("");
   const [feeDepotPct, setFeeDepotPct] = useState("");
@@ -81,12 +120,16 @@ export default function Portfolio() {
   useEffect(() => {
     const loadPortfolio = async () => {
       try {
-        const [portfolioState, benchmarkSettings] = await Promise.all([
+        const [portfolioState, benchmarkSettings, quoteSettings] = await Promise.all([
           PortfolioAPI.load(),
-          fetchPortfolioBenchmarkSettings()
+          fetchPortfolioBenchmarkSettings(),
+          fetchMarketQuoteSettings()
         ]);
         setState(portfolioState);
         setBenchmarkAnnualRatePct(Number(benchmarkSettings?.annualRatePct || 3));
+        setRefreshSeconds(quoteSettings.quoteRefreshSeconds);
+        setFirstRefreshAt(quoteSettings.firstRefreshAt);
+        applySettings(quoteSettings.firstRefreshAt, quoteSettings.quoteRefreshSeconds);
         setFeeTransactionPct(
           portfolioState.transactionFeeRate == null
             ? "0"
@@ -98,14 +141,14 @@ export default function Portfolio() {
             : (Number(portfolioState.depotFeeRate) * 100).toFixed(4)
         );
       } catch (err) {
-        setError(err?.message || "Portfolio konnte nicht geladen werden.");
+        setError(err?.message || t("portfolio.loadFailed"));
         console.error(err);
       } finally {
         setIsLoading(false);
       }
     };
     loadPortfolio();
-  }, []);
+  }, [applySettings]);
 
   const refreshQuotes = useCallback(async (forceRefresh) => {
     if (!state) {
@@ -119,7 +162,8 @@ export default function Portfolio() {
     const symbolsToRefresh = Object.keys(state?.holdings || {});
     if (symbolsToRefresh.length === 0) {
       setQuotes({});
-      setCountdown(AUTO_REFRESH_SECONDS);
+      setQuotesSettled(true);
+      armAfterFetch(forceRefresh);
       return;
     }
 
@@ -130,63 +174,62 @@ export default function Portfolio() {
 
       // Some providers return transient zero/missing prices right after page load.
       // Auto-retry once with force=true to mirror manual refresh behavior.
-      if (!hasValidQuoteCoverage(data, symbolsToRefresh, customSymbols)) {
+      if (!hasQuoteCoverage(data, symbolsToRefresh, customSymbols, FRESH_QUOTE_SOURCES)) {
         const retryData = await fetchLivePrices(true, symbolsToRefresh);
         if (retryData) {
           data = retryData;
         }
       }
 
-      if (data && Object.keys(data).length > 0) {
-        setQuotes(data);
+      const received = data && typeof data === "object" ? data : {};
+      setQuotes(received);
+      setQuotesFetchedAt(Date.now());
+      setQuotesSettled(true);
+
+      if (
+        !forceRefresh
+        && !warmupRetryRef.current
+        && !hasQuoteCoverage(received, symbolsToRefresh, customSymbols, FRESH_QUOTE_SOURCES)
+      ) {
+        warmupRetryRef.current = true;
+        window.setTimeout(() => {
+          refreshQuotesRef.current?.(false);
+        }, WARMUP_RETRY_MS);
       }
-      setCountdown(AUTO_REFRESH_SECONDS);
     } finally {
+      armAfterFetch(forceRefresh);
       isRefreshingRef.current = false;
       setIsRefreshing(false);
     }
-  }, [state, customSymbols]);
+  }, [state, customSymbols, armAfterFetch]);
+
+  refreshQuotesRef.current = refreshQuotes;
 
   useEffect(() => {
     if (!state) {
       return;
     }
-    // If we already have initial quotes (loaded during mount), skip immediate refresh.
-    if (quotes && Object.keys(quotes).length > 0) {
-      return;
-    }
-    refreshQuotes(true);
-  }, [state, refreshQuotes]);
+    refreshQuotesRef.current?.(false);
+  }, [state]);
 
   useEffect(() => {
-    if (isRefreshing) {
+    if (remaining > 0 || isRefreshing) {
       return;
     }
-
-    if (countdown <= 0) {
-      refreshQuotes(true);
+    if (!consumeExpire()) {
       return;
     }
-
-    const timeoutId = setTimeout(() => {
-      if (!document.hidden) {
-        setCountdown((previous) => Math.max(previous - 1, 0));
-      }
-    }, 1000);
-
-    return () => clearTimeout(timeoutId);
-  }, [countdown, isRefreshing, refreshQuotes]);
+    refreshQuotesRef.current?.(false);
+  }, [remaining, isRefreshing, consumeExpire]);
 
   const trustedPriceMap = quotes
     ? Object.fromEntries(
         Object.entries(quotes)
           .filter(([symbol, quote]) => {
             if (customSymbols.has(symbol)) {
-              return true;
+              return Number(quote?.price) > 0;
             }
-
-            const source = String(quote?.source || "").toLowerCase();
-            return READY_QUOTE_SOURCES.has(source);
+            return isPricedQuote(quote, DISPLAY_QUOTE_SOURCES);
           })
           .map(([symbol, quote]) => [symbol, quote.price])
       )
@@ -195,9 +238,10 @@ export default function Portfolio() {
   const metrics = state ? calculateMetrics(state, trustedPriceMap, { allowCatalogFallback: false }) : null;
   const hasCashDeficit = Number(metrics?.cash || 0) < 0;
   const cashDeficitAmount = hasCashDeficit ? Math.abs(Number(metrics?.cash || 0)) : 0;
-  const quotesReady = hasValidQuoteCoverage(quotes, Object.keys(state?.holdings || {}), customSymbols);
+  const holdingSymbols = Object.keys(state?.holdings || {});
+  const quotesReady = hasQuoteCoverage(quotes, holdingSymbols, customSymbols, DISPLAY_QUOTE_SOURCES);
   const hasHoldings = metrics ? metrics.positions.length > 0 : false;
-  const shouldShowLivePortfolioValues = !hasHoldings || quotesReady;
+  const shouldShowLivePortfolioValues = !hasHoldings || quotesReady || (quotesSettled && !isRefreshing);
 
   const handleSort = useCallback((field) => {
     setSortConfig((previous) => {
@@ -218,7 +262,7 @@ export default function Portfolio() {
       ...position,
       benchmarkReturnPct: calculateBenchmarkReturnPct(benchmarkAnnualRatePct, position.holdingDays),
       outperformancePct:
-        position.pnlPct == null
+        position.currentPrice == null || position.pnlPct == null
           ? null
           : position.pnlPct - calculateBenchmarkReturnPct(benchmarkAnnualRatePct, position.holdingDays)
     }));
@@ -266,18 +310,47 @@ export default function Portfolio() {
     return normalized;
   }, [benchmarkAnnualRatePct, metrics, sortConfig]);
 
-  const handleSell = async (symbol) => {
-    const quantity = Number(sellQuantities[symbol] || 0);
-    const livePrice = quotes?.[symbol]?.price ?? null;
-
+  const executeSell = async (symbol, quantity, sellPrice, fromQuote) => {
     try {
-      const nextState = await PortfolioAPI.sell(symbol, quantity, livePrice);
+      const nextState = await PortfolioAPI.sell(symbol, quantity, sellPrice);
       setState(nextState);
       setError("");
+      setSellConfirm(null);
       setSellQuantities((prev) => ({ ...prev, [symbol]: "" }));
+      if (!fromQuote) {
+        setSellNotice(
+          t("portfolio.soldAtCost", { symbol, quantity, price: formatCurrency(sellPrice) })
+        );
+      } else {
+        setSellNotice("");
+      }
     } catch (sellError) {
       setError(sellError.message);
+      setSellNotice("");
     }
+  };
+
+  const handleSell = async (symbol) => {
+    const quantity = Number(sellQuantities[symbol] || 0);
+    const resolved = resolveSellPrice(symbol, quotes, state?.holdings?.[symbol]);
+    setError("");
+    setSellNotice("");
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      setError(t("portfolio.invalidQty"));
+      return;
+    }
+
+    if (!resolved.fromQuote) {
+      if (!Number.isFinite(resolved.price) || resolved.price <= 0) {
+        setError(t("portfolio.invalidPrice"));
+        return;
+      }
+      setSellConfirm({ symbol, quantity, price: resolved.price });
+      return;
+    }
+
+    await executeSell(symbol, quantity, resolved.price, true);
   };
 
   const handleSaveFees = async () => {
@@ -286,11 +359,11 @@ export default function Portfolio() {
     const txRate = Number.parseFloat(feeTransactionPct) / 100;
     const depotRate = Number.parseFloat(feeDepotPct) / 100;
     if (Number.isNaN(txRate) || txRate < 0 || txRate > 0.1) {
-      setFeeError("Transaktionsgebühr muss zwischen 0 und 10 % liegen.");
+      setFeeError(t("portfolio.feeTxRange"));
       return;
     }
     if (Number.isNaN(depotRate) || depotRate < 0 || depotRate > 0.1) {
-      setFeeError("Depotgebühr muss zwischen 0 und 10 % p.a. liegen.");
+      setFeeError(t("portfolio.feeDepotRange"));
       return;
     }
     try {
@@ -302,29 +375,12 @@ export default function Portfolio() {
     }
   };
 
-  const formatAddedAt = (value) => {
-    if (!value) {
-      return "-";
-    }
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      return "-";
-    }
-    return parsed.toLocaleString("de-DE", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit"
-    });
-  };
-
   if (isLoading) {
     return (
       <Grid container spacing={3}>
         <Grid item xs={12}>
           <Paper sx={{ p: 3 }}>
-            <Typography>Portfolio wird geladen...</Typography>
+            <Typography>{t("portfolio.loading")}</Typography>
           </Paper>
         </Grid>
       </Grid>
@@ -336,7 +392,7 @@ export default function Portfolio() {
       <Grid container spacing={3}>
         <Grid item xs={12}>
           <Paper sx={{ p: 3 }}>
-            <Typography color="error">Portfolio konnte nicht geladen werden.</Typography>
+            <Typography color="error">{t("portfolio.loadFailed")}</Typography>
           </Paper>
         </Grid>
       </Grid>
@@ -345,41 +401,37 @@ export default function Portfolio() {
 
   const summaryCards = [
     {
-      title: "Gesamtwert",
-      value: shouldShowLivePortfolioValues ? formatCurrency(metrics.totalValue) : "Lädt...",
-      tooltip: "Der Gesamtwert ist die Summe aus aktuellem Cash-Bestand und dem aktuellen Marktwert aller gehaltenen ETF-Positionen. Er zeigt damit den kompletten Depotstand zum jetzigen Zeitpunkt.",
+      title: t("portfolio.totalValue"),
+      value: shouldShowLivePortfolioValues ? formatCurrency(metrics.totalValue) : t("common.loading"),
+      tooltip: t("portfolio.totalValueHint"),
       color: "text.primary"
     },
     {
-      title: "Cash",
+      title: t("portfolio.cash"),
       value: formatCurrency(metrics.cash),
-      detail: hasCashDeficit ? "Unterdeckung im Cash-Konto" : "",
+      detail: hasCashDeficit ? t("portfolio.cashDeficit") : "",
       detailColor: "error.main",
-      tooltip: hasCashDeficit
-        ? "Cash zeigt den aktuellen Kontostand des Cash-Kontos (Verrechnungskontos). Wenn dieser unter null liegt, besteht eine Unterdeckung. Rechnerisch ergibt sich der Wert aus Startkapital minus Kaeufe minus Kaufgebuehren plus Verkaeufe minus Verkaufsgebuehren minus Depotgebuehren."
-        : "Cash zeigt den aktuell verfuegbaren Restbetrag auf dem Cash-Konto (Verrechnungskonto). Rechnerisch ergibt sich der Wert aus Startkapital minus Kaeufe minus Kaufgebuehren plus Verkaeufe minus Verkaufsgebuehren minus Depotgebuehren.",
+      tooltip: hasCashDeficit ? t("portfolio.cashHintYes") : t("portfolio.cashHintNo"),
       color: hasCashDeficit ? "error.main" : "text.primary"
     },
     {
-      title: "Unrealized P/L",
-      value: shouldShowLivePortfolioValues ? formatCurrency(metrics.unrealizedPnl) : "Lädt...",
-      tooltip: "Dieser Wert zeigt den aktuellen Buchgewinn oder Buchverlust deiner noch gehaltenen Positionen. Er vergleicht heutigen Marktwert mit dem jeweiligen Einstandswert, ohne bereits verkaufte Positionen einzubeziehen.",
+      title: t("portfolio.unrealized"),
+      value: shouldShowLivePortfolioValues ? formatCurrency(metrics.unrealizedPnl) : t("common.loading"),
+      tooltip: t("portfolio.unrealizedHint"),
       color: metrics.unrealizedPnl >= 0 ? "success.main" : "error.main"
     },
     {
-      title: "Rendite",
+      title: t("portfolio.returnTitle"),
       value: formatPercent(metrics.returns.totalReturnPct),
-      tooltip: "Die Rendite zeigt die bisherige prozentuale Entwicklung des Portfolios seit Start. Sie ist nicht annualisiert und entspricht damit der direkten Gesamtentwicklung in Prozent.",
+      tooltip: t("portfolio.returnHint"),
       color: metrics.returns.totalReturnPct >= 0 ? "success.main" : "error.main"
     },
     {
-      title: "Unterdeckung",
+      title: t("portfolio.deficit"),
       value: formatCurrency(cashDeficitAmount),
-      detail: hasCashDeficit ? "Ausgleich des Cash-Kontos erforderlich" : "",
+      detail: hasCashDeficit ? t("portfolio.deficitNeeded") : "",
       detailColor: hasCashDeficit ? "error.main" : "text.secondary",
-      tooltip: hasCashDeficit
-        ? "Eine Unterdeckung liegt vor, wenn das Cash-Konto (Verrechnungskonto) unter null gefallen ist. Der hier angezeigte Betrag entspricht genau dem Fehlbetrag, der rechnerisch ausgeglichen werden muesste."
-        : "Solange hier 0,00 EUR steht, besteht keine Unterdeckung. Das Cash-Konto ist dann nicht im Minus und es muss nichts nachgeschossen werden.",
+      tooltip: hasCashDeficit ? t("portfolio.deficitHintYes") : t("portfolio.deficitHintNo"),
       color: hasCashDeficit ? "error.main" : "success.main"
     }
   ];
@@ -412,33 +464,48 @@ export default function Portfolio() {
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       {hasCashDeficit && (
         <Alert severity="warning" variant="filled">
-          Negativer Cash-Saldo: Das Verrechnungskonto ist in Unterdeckung und sollte ausgeglichen werden.
+          {t("portfolio.cashAlert")}
         </Alert>
       )}
       <Grid container spacing={3}>
         {summaryCards.map(renderSummaryCard)}
       </Grid>
 
-      <Paper sx={{ p: 3 }}>
+      <Paper sx={{ p: { xs: 2, md: 3 }, overflow: "hidden" }}>
           <Typography variant="h5" sx={{ mb: 2 }}>
-            Portfolio Uebersicht
+            {t("portfolio.title")}
           </Typography>
 
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+          <Box sx={{ display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 2, mb: 2 }}>
             <Button
               variant="outlined"
               size="small"
               onClick={() => refreshQuotes(true)}
               disabled={isRefreshing}
             >
-              {isRefreshing ? "Aktualisiere..." : "Aktualisieren"}
+              {isRefreshing ? t("common.refreshing") : t("common.refresh")}
             </Button>
-            <Typography variant="body2" color="text.secondary">
-              {isRefreshing
-                ? "Auto-Refresh laeuft..."
-                : `Naechster Auto-Refresh in ${countdown}s`}
-            </Typography>
+            <QuoteRefreshStatus
+              isRefreshing={isRefreshing}
+              countdown={remaining}
+              quotes={quotes}
+              awaitingDelayedTick={awaitingDelayedTick}
+              fallbackAsOf={quotesFetchedAt}
+              refreshSeconds={refreshSeconds}
+              nextAtMs={deadlineMs}
+            />
           </Box>
+
+          {sellNotice && (
+            <Alert
+              severity="success"
+              variant="filled"
+              sx={{ mb: 2, borderRadius: 2 }}
+              onClose={() => setSellNotice("")}
+            >
+              {sellNotice}
+            </Alert>
+          )}
 
           {error && (
             <Alert
@@ -450,113 +517,121 @@ export default function Portfolio() {
             </Alert>
           )}
 
+          <TableContainer sx={{ overflowX: "auto" }}>
           <Table size="small">
             <TableHead>
               <TableRow sx={{ backgroundColor: "#f5f5f5", "&:hover": { backgroundColor: "#f5f5f5" } }}>
                 <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "symbol" ? sortConfig.direction : false}>
-                  <Tooltip title="Zum Sortieren klicken (auf/absteigend)">
+                  <Tooltip title={t("common.sortHint")}>
                     <TableSortLabel
                       active={sortConfig.field === "symbol"}
                       direction={sortConfig.field === "symbol" ? sortConfig.direction : "asc"}
                       onClick={() => handleSort("symbol")}
                     >
-                      Symbol
+                      {t("portfolio.symbol")}
                     </TableSortLabel>
                   </Tooltip>
                 </TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "shares" ? sortConfig.direction : false}>
-                  <Tooltip title="Zum Sortieren klicken (auf/absteigend)">
+                  <Tooltip title={t("common.sortHint")}>
                     <TableSortLabel
                       active={sortConfig.field === "shares"}
                       direction={sortConfig.field === "shares" ? sortConfig.direction : "asc"}
                       onClick={() => handleSort("shares")}
                     >
-                      Anteile
+                      {t("portfolio.shares")}
                     </TableSortLabel>
                   </Tooltip>
                 </TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "averageCost" ? sortConfig.direction : false}>
-                  <Tooltip title="Zum Sortieren klicken (auf/absteigend)">
+                  <Tooltip title={t("common.sortHint")}>
                     <TableSortLabel
                       active={sortConfig.field === "averageCost"}
                       direction={sortConfig.field === "averageCost" ? sortConfig.direction : "asc"}
                       onClick={() => handleSort("averageCost")}
                     >
-                      Durchschnitt
+                      {t("portfolio.avgCost")}
                     </TableSortLabel>
                   </Tooltip>
                 </TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "currentPrice" ? sortConfig.direction : false}>
-                  <Tooltip title="Zum Sortieren klicken (auf/absteigend)">
+                  <Tooltip title={t("common.sortHint")}>
                     <TableSortLabel
                       active={sortConfig.field === "currentPrice"}
                       direction={sortConfig.field === "currentPrice" ? sortConfig.direction : "asc"}
                       onClick={() => handleSort("currentPrice")}
                     >
-                      Aktuell
+                      {t("portfolio.price")}
                     </TableSortLabel>
                   </Tooltip>
                 </TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "currentValue" ? sortConfig.direction : false}>
-                  <Tooltip title="Zum Sortieren klicken (auf/absteigend)">
+                  <Tooltip title={t("common.sortHint")}>
                     <TableSortLabel
                       active={sortConfig.field === "currentValue"}
                       direction={sortConfig.field === "currentValue" ? sortConfig.direction : "asc"}
                       onClick={() => handleSort("currentValue")}
                     >
-                      Wert
+                      {t("portfolio.value")}
                     </TableSortLabel>
                   </Tooltip>
                 </TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "pnl" ? sortConfig.direction : false}>
-                  <Tooltip title="Zum Sortieren klicken (auf/absteigend)">
+                  <Tooltip title={t("common.sortHint")}>
                     <TableSortLabel
                       active={sortConfig.field === "pnl"}
                       direction={sortConfig.field === "pnl" ? sortConfig.direction : "asc"}
                       onClick={() => handleSort("pnl")}
                     >
-                      P/L
+                      {t("portfolio.pnl")}
                     </TableSortLabel>
                   </Tooltip>
                 </TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "benchmarkReturn" ? sortConfig.direction : false}>
-                  <Tooltip title={`Benchmark-Wert nach Formel (1 + ${(benchmarkAnnualRatePct / 100).toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 4 })}/365)^Tage - 1. Zum Sortieren klicken.`}>
+                  <Tooltip title={t("portfolio.benchmarkHint", { rate: (benchmarkAnnualRatePct / 100).toLocaleString(getLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 4 }) })}>
                     <TableSortLabel
                       active={sortConfig.field === "benchmarkReturn"}
                       direction={sortConfig.field === "benchmarkReturn" ? sortConfig.direction : "asc"}
                       onClick={() => handleSort("benchmarkReturn")}
                     >
-                      Benchmark
+                      {t("portfolio.benchmark")}
                     </TableSortLabel>
                   </Tooltip>
                 </TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "outperformance" ? sortConfig.direction : false}>
-                  <Tooltip title="Performance = aktuelle ETF-Rendite in % minus Benchmark. Positive Werte bedeuten, dass die Position im bisherigen Haltedauer-Zeitraum besser als der Benchmark gelaufen ist.">
+                  <Tooltip title={t("portfolio.performanceHint")}>
                     <TableSortLabel
                       active={sortConfig.field === "outperformance"}
                       direction={sortConfig.field === "outperformance" ? sortConfig.direction : "asc"}
                       onClick={() => handleSort("outperformance")}
                     >
-                      Performance
+                      {t("portfolio.performance")}
                     </TableSortLabel>
                   </Tooltip>
                 </TableCell>
-                <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>Hinzugefuegt</TableCell>
-                <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>Verkauf</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>{t("portfolio.added")}</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>{t("portfolio.sell")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {sortedPositions.map((position) => (
+              {sortedPositions.map((position) => {
+                const positionReady = customSymbols.has(position.symbol)
+                  || isPricedQuote(quotes?.[position.symbol], DISPLAY_QUOTE_SOURCES);
+                const positionPending = !positionReady && (!quotesSettled || isRefreshing);
+                const positionLabel = positionReady
+                  ? null
+                  : (positionPending ? t("common.loading") : t("portfolio.missingQuote"));
+                return (
                 <TableRow key={position.symbol}>
                   <TableCell>{position.symbol}</TableCell>
                   <TableCell>{position.shares}</TableCell>
                   <TableCell>{formatCurrency(position.averageCost)}</TableCell>
-                  <TableCell>{quotesReady ? formatCurrency(position.currentPrice) : "Lädt..."}</TableCell>
-                  <TableCell>{quotesReady ? formatCurrency(position.currentValue) : "Lädt..."}</TableCell>
+                  <TableCell>{positionReady ? formatCurrency(position.currentPrice) : positionLabel}</TableCell>
+                  <TableCell>{positionReady ? formatCurrency(position.currentValue) : positionLabel}</TableCell>
                   <TableCell
-                    sx={{ color: quotesReady && position.pnlAbs >= 0 ? "success.main" : "error.main" }}
+                    sx={{ color: positionReady && position.pnlAbs >= 0 ? "success.main" : "error.main" }}
                   >
-                    {quotesReady ? `${formatCurrency(position.pnlAbs)} (${formatPercent(position.pnlPct)})` : "Lädt..."}
+                    {positionReady ? `${formatCurrency(position.pnlAbs)} (${formatPercent(position.pnlPct)})` : positionLabel}
                   </TableCell>
                   <TableCell sx={{ color: "info.main" }}>
                     {formatPercent(position.benchmarkReturnPct)}
@@ -571,9 +646,9 @@ export default function Portfolio() {
                           : "error.main"
                     }}
                   >
-                    {formatPercent(position.outperformancePct)}
+                    {positionReady ? formatPercent(position.outperformancePct) : t("common.dash")}
                   </TableCell>
-                  <TableCell>{formatAddedAt(position.addedAt)}</TableCell>
+                  <TableCell>{formatDateTime(position.addedAt)}</TableCell>
                   <TableCell>
                     <TextField
                       size="small"
@@ -589,59 +664,107 @@ export default function Portfolio() {
                       sx={{ width: 90, mr: 1 }}
                     />
                     <Button variant="outlined" onClick={() => handleSell(position.symbol)}>
-                      Sell
+                      {t("portfolio.sellAction")}
                     </Button>
+                    {!positionReady && !positionPending && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                        {t("portfolio.sellAtCostHint")}
+                      </Typography>
+                    )}
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
+          </TableContainer>
 
           {metrics.positions.length === 0 && (
             <Typography sx={{ mt: 2 }} color="text.secondary">
-              Noch keine ETF Positionen. Starte in der ETF Liste mit deinem ersten Kauf.
+              {t("portfolio.empty")}
             </Typography>
           )}
+
+          <Dialog
+            open={Boolean(sellConfirm)}
+            onClose={() => setSellConfirm(null)}
+            PaperProps={{
+              sx: {
+                borderRadius: 3,
+                border: "1px solid",
+                borderColor: "divider",
+                boxShadow: "0 24px 60px rgba(25, 118, 210, 0.24)",
+                overflow: "hidden"
+              }
+            }}
+          >
+            <DialogTitle sx={{ pb: 1, fontWeight: 800 }}>{t("portfolio.noQuoteTitle")}</DialogTitle>
+            <DialogContent sx={{ pt: "8px !important" }}>
+              <DialogContentText sx={{ color: "text.primary" }}>
+                {t("portfolio.noQuoteBody", { symbol: sellConfirm?.symbol ?? "" })}
+              </DialogContentText>
+              <DialogContentText sx={{ mt: 1, color: "text.secondary", fontSize: "0.9rem" }}>
+                {sellConfirm
+                  ? t("portfolio.noQuoteCost", { quantity: sellConfirm.quantity, price: formatCurrency(sellConfirm.price) })
+                  : ""}
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions sx={{ px: 3, pb: 2, pt: 1 }}>
+              <Button onClick={() => setSellConfirm(null)} variant="outlined">
+                {t("common.cancel")}
+              </Button>
+              <Button
+                onClick={() => {
+                  if (!sellConfirm) {
+                    return;
+                  }
+                  executeSell(sellConfirm.symbol, sellConfirm.quantity, sellConfirm.price, false);
+                }}
+                variant="contained"
+              >
+                {t("portfolio.sellAction")}
+              </Button>
+            </DialogActions>
+          </Dialog>
       </Paper>
 
-      <Paper sx={{ p: 3 }}>
+      <Paper sx={{ p: { xs: 2, md: 3 }, overflow: "hidden" }}>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Nebenkosten-Einstellungen
+          {t("portfolio.feesTitle")}
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Transaktionsgebühren werden direkt beim Kauf/Verkauf vom Cash abgezogen.
-          Depotgebühren werden monatlich automatisch berechnet (anteilig p.a.) und koennen einen negativen Cash-Saldo verursachen.
+          {t("portfolio.feesIntro")}
         </Typography>
         <Box sx={{ display: "flex", gap: 2, alignItems: "flex-end", flexWrap: "wrap" }}>
           <TextField
-            label="Transaktionsgebühr (%)"
+            label={t("portfolio.txFee")}
             size="small"
             type="number"
             slotProps={{ htmlInput: { min: 0, max: 10, step: 0.01 } }}
             value={feeTransactionPct}
             onChange={(e) => { setFeeTransactionPct(e.target.value); setFeeSaved(false); }}
             sx={{ width: 200 }}
-            helperText="z. B. 0.1 für 0,1 % pro Trade"
+            helperText={t("portfolio.txFeeHelp")}
           />
           <TextField
-            label="Depotgebühr p.a. (%)"
+            label={t("portfolio.depotFee")}
             size="small"
             type="number"
             slotProps={{ htmlInput: { min: 0, max: 10, step: 0.01 } }}
             value={feeDepotPct}
             onChange={(e) => { setFeeDepotPct(e.target.value); setFeeSaved(false); }}
             sx={{ width: 200 }}
-            helperText="z. B. 0.1 für 0,1 % p.a."
+            helperText={t("portfolio.depotFeeHelp")}
           />
           <Button variant="contained" onClick={handleSaveFees}>
-            Speichern
+            {t("common.save")}
           </Button>
         </Box>
         {feeError && (
           <Alert severity="error" sx={{ mt: 2 }}>{feeError}</Alert>
         )}
         {feeSaved && (
-          <Alert severity="success" sx={{ mt: 2 }}>Gebühren gespeichert.</Alert>
+          <Alert severity="success" sx={{ mt: 2 }}>{t("portfolio.feesSaved")}</Alert>
         )}
       </Paper>
     </Box>

@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestController
@@ -31,11 +32,19 @@ public class TestController {
         User user = userRepository.findByUsername(auth.getName())
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        return Map.of(
-                "username", user.getUsername(),
-                "email", user.getEmail(),
-                "emailVerified", user.isEmailVerified(),
-                "roles", user.getRoles().stream().map(role -> role.getName()).sorted().toList());
+        UserService.PasswordAgeStatus passwordAge = userService.passwordAgeStatus(user);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("username", user.getUsername());
+        payload.put("email", user.getEmail());
+        payload.put("emailVerified", user.isEmailVerified());
+        payload.put("roles", user.getRoles().stream().map(role -> role.getName()).sorted().toList());
+        payload.put("passwordExpired", passwordAge.expired());
+        payload.put("passwordExpiresSoon", passwordAge.expiresSoon());
+        payload.put("passwordMaxAgeDays", passwordAge.maxAgeDays());
+        if (passwordAge.expiresAt() != null) {
+            payload.put("passwordExpiresAt", passwordAge.expiresAt().toString());
+        }
+        return payload;
     }
 
     @PostMapping("/api/user/change-password")

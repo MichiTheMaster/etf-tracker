@@ -4,6 +4,7 @@ import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import ProtectedRoute from "./ProtectedRoute";
 import DashboardLayout from "./DashboardLayout";
 import { clearStoredSession, hasForcedLogout, loadCurrentUser, markForcedLogout, storeAuthenticatedSession } from "./sessionClient";
+import { I18nProvider, useI18n } from "./i18n";
 
 const Login = lazy(() => import("./Login"));
 const Dashboard = lazy(() => import("./Dashboard"));
@@ -18,7 +19,8 @@ const UserData = lazy(() => import("./UserData"));
 const AdminSettings = lazy(() => import("./AdminSettings"));
 
 function PageFallback() {
-	return <div>Seite wird geladen...</div>;
+	const { t } = useI18n();
+	return <div>{t("common.loadingPage")}</div>;
 }
 
 function LoginRoute({ authStatus, onAuthenticated }) {
@@ -112,6 +114,7 @@ function App() {
 	}, [setAuthenticated, setUnauthenticated]);
 
   return (
+    <I18nProvider>
     <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
 			<Suspense fallback={<PageFallback />}>
 				<Routes>
@@ -181,6 +184,7 @@ function App() {
 				</Routes>
 			</Suspense>
     </HashRouter>
+    </I18nProvider>
   );
 }
 

@@ -2,9 +2,13 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { TextField, Button, Box, Typography, Paper, CircularProgress, Alert } from "@mui/material";
 import LegalFooter from "./LegalFooter";
+import LanguageToggle from "./LanguageToggle";
 import { apiPost } from "./apiClient";
+import { validatePassword } from "./passwordPolicy";
+import { useI18n } from "./i18n";
 
 export default function ResetPassword() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
@@ -17,7 +21,7 @@ export default function ResetPassword() {
 
   useEffect(() => {
     if (!token) {
-      setMessage("Ungültiger Reset-Link");
+      setMessage(t("auth.invalidResetLink"));
       setMessageType("error");
     }
   }, [token]);
@@ -32,24 +36,25 @@ export default function ResetPassword() {
     setMessageType("error");
 
     try {
-      if (!newPassword || newPassword.length < 6) {
-        setMessage("Passwort muss mindestens 6 Zeichen lang sein");
+      const passwordError = validatePassword(newPassword);
+      if (passwordError) {
+        setMessage(passwordError);
         return;
       }
 
       if (newPassword !== confirmPassword) {
-        setMessage("Passwörter stimmen nicht überein");
+        setMessage(t("auth.passwordMismatch"));
         return;
       }
 
       await apiPost(
         "/auth/reset-password",
         { token, newPassword },
-        { fallbackMessage: "Passwort-Reset fehlgeschlagen" }
+        { fallbackMessage: t("auth.resetFailed") }
       );
 
       setMessageType("success");
-      setMessage("Passwort erfolgreich zurückgesetzt. Du kannst dich jetzt anmelden.");
+      setMessage(t("auth.resetSuccess"));
 
       // Nach 3 Sekunden zur Login-Seite weiterleiten
       setTimeout(() => {
@@ -57,7 +62,7 @@ export default function ResetPassword() {
       }, 3000);
 
     } catch (error) {
-      setMessage(error.message || "Netzwerkfehler. Bitte versuche es später erneut.");
+      setMessage(error.message || t("common.networkError"));
     } finally {
       setIsSubmitting(false);
     }
@@ -76,11 +81,14 @@ export default function ResetPassword() {
         }}
       >
         <Paper elevation={3} sx={{ p: 4, maxWidth: 400, width: "100%" }}>
+          <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 1 }}>
+            <LanguageToggle />
+          </Box>
           <Typography variant="h5" component="h1" gutterBottom align="center">
-            Passwort zurücksetzen
+            {t("auth.resetPassword")}
           </Typography>
           <Alert severity="error" sx={{ mb: 2 }}>
-            Ungültiger Reset-Link
+            {t("auth.invalidResetLink")}
           </Alert>
           <Button
             fullWidth
@@ -88,7 +96,7 @@ export default function ResetPassword() {
             onClick={() => navigate("/login")}
             sx={{ mt: 2 }}
           >
-            Zur Anmeldung
+            {t("legal.toLogin")}
           </Button>
         </Paper>
         <LegalFooter />
@@ -108,8 +116,11 @@ export default function ResetPassword() {
       }}
     >
       <Paper elevation={3} sx={{ p: 4, maxWidth: 400, width: "100%" }}>
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 1 }}>
+          <LanguageToggle />
+        </Box>
         <Typography variant="h5" component="h1" gutterBottom align="center">
-          Passwort zurücksetzen
+          {t("auth.resetPassword")}
         </Typography>
 
         {message && (
@@ -120,7 +131,7 @@ export default function ResetPassword() {
 
         <TextField
           fullWidth
-          label="Neues Passwort"
+          label={t("auth.newPassword")}
           type="password"
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
@@ -130,7 +141,7 @@ export default function ResetPassword() {
 
         <TextField
           fullWidth
-          label="Passwort bestätigen"
+          label={t("auth.confirmPassword")}
           type="password"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
@@ -145,7 +156,7 @@ export default function ResetPassword() {
           disabled={isSubmitting}
           sx={{ mt: 3, mb: 2 }}
         >
-          {isSubmitting ? <CircularProgress size={24} /> : "Passwort zurücksetzen"}
+          {isSubmitting ? <CircularProgress size={24} /> : t("auth.resetPassword")}
         </Button>
 
         <Button
@@ -153,7 +164,7 @@ export default function ResetPassword() {
           variant="text"
           onClick={() => navigate("/login")}
         >
-          Zurück zur Anmeldung
+          {t("auth.backToLogin")}
         </Button>
       </Paper>
       <LegalFooter />
