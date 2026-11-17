@@ -39,6 +39,12 @@ public class UserEtfSelection {
     @Column(length = 32)
     private String source;
 
+    @Column(length = 16)
+    private String isin;
+
+    @Column(length = 16)
+    private String ticker;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -138,5 +144,21 @@ public class UserEtfSelection {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getIsin() {
+        return isin;
+    }
+
+    public void setIsin(String isin) {
+        this.isin = isin;
+    }
+
+    public String getTicker() {
+        return ticker;
+    }
+
+    public void setTicker(String ticker) {
+        this.ticker = ticker;
     }
 }

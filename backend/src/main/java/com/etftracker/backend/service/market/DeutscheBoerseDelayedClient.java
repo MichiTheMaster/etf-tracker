@@ -97,6 +97,19 @@ public class DeutscheBoerseDelayedClient {
         return lookup(isin);
     }
 
+    public DelayedQuote fetchLastPriceFresh(String isin) {
+        if (isin == null || isin.isBlank()) {
+            return null;
+        }
+        DelayedQuote cached = lookup(isin);
+        if (cached != null) {
+            scheduleRefreshIfStale();
+            return cached;
+        }
+        refreshIfStale();
+        return lookup(isin);
+    }
+
     private void scheduleRefreshIfStale() {
         Instant now = Instant.now();
         if (Duration.between(lastRefresh, now).compareTo(REFRESH_TTL) < 0 && !lastByIsin.isEmpty()) {

@@ -6,6 +6,8 @@ public class EtfPoolItemResponse {
     private String exchange;
     private String currency;
     private Double marketPrice;
+    private String isin;
+    private String ticker;
 
     public EtfPoolItemResponse() {
     }
@@ -56,5 +58,21 @@ public class EtfPoolItemResponse {
 
     public void setMarketPrice(Double marketPrice) {
         this.marketPrice = marketPrice;
+    }
+
+    public String getIsin() {
+        return isin;
+    }
+
+    public void setIsin(String isin) {
+        this.isin = isin;
+    }
+
+    public String getTicker() {
+        return ticker;
+    }
+
+    public void setTicker(String ticker) {
+        this.ticker = ticker;
     }
 }

@@ -31,6 +31,8 @@ public class EtfPreferenceRequest {
         private Double price;
         private Double ter;
         private String source;
+        private String isin;
+        private String ticker;
 
         public String getSymbol() {
             return symbol;
@@ -70,6 +72,22 @@ public class EtfPreferenceRequest {
 
         public void setSource(String source) {
             this.source = source;
+        }
+
+        public String getIsin() {
+            return isin;
+        }
+
+        public void setIsin(String isin) {
+            this.isin = isin;
+        }
+
+        public String getTicker() {
+            return ticker;
+        }
+
+        public void setTicker(String ticker) {
+            this.ticker = ticker;
         }
     }
 }

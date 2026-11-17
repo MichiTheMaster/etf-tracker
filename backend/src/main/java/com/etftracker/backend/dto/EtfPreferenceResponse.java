@@ -43,6 +43,8 @@ public class EtfPreferenceResponse {
         private Double ter;
         private String source;
         private String addedAt;
+        private String isin;
+        private String ticker;
 
         public EtfItem() {
         }
@@ -102,6 +104,22 @@ public class EtfPreferenceResponse {
 
         public void setAddedAt(String addedAt) {
             this.addedAt = addedAt;
+        }
+
+        public String getIsin() {
+            return isin;
+        }
+
+        public void setIsin(String isin) {
+            this.isin = isin;
+        }
+
+        public String getTicker() {
+            return ticker;
+        }
+
+        public void setTicker(String ticker) {
+            this.ticker = ticker;
         }
     }
 }

@@ -30,7 +30,6 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import {
   DEFAULT_ETF_SYMBOLS,
   ETF_CATALOG,
-  fetchRiskMetrics,
   fetchLivePrices,
   fetchMarketQuoteSettings,
   formatCurrency,
@@ -44,6 +43,21 @@ import { formatDateTime, useI18n } from "./i18n";
 
 const MIN_POOL_QUERY_LENGTH = 1;
 const MAX_POOL_RESULTS = 20;
+const hintMarkSx = { borderBottom: "1px dotted currentColor", cursor: "help" };
+
+function isIsinCode(value) {
+  return typeof value === "string" && /^[A-Z0-9]{12}$/i.test(value.trim());
+}
+
+function displaySymbol(etf, fallback) {
+  if (etf?.ticker) {
+    return etf.ticker;
+  }
+  if (isIsinCode(etf?.symbol)) {
+    return fallback;
+  }
+  return etf?.symbol || fallback;
+}
 
 const ETF_ISIN_BY_SYMBOL = {
   VWCE: "IE00BK5BQT80",
@@ -67,8 +81,6 @@ export default function Etfs() {
   const [quantities, setQuantities] = useState({});
   const [error, setError] = useState("");
   const [quotes, setQuotes] = useState(null);
-  const [riskMetrics, setRiskMetrics] = useState({});
-  const [riskStatuses, setRiskStatuses] = useState({});
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshSeconds, setRefreshSeconds] = useState(DEFAULT_QUOTE_REFRESH_SECONDS);
   const [firstRefreshAt, setFirstRefreshAt] = useState(null);
@@ -253,10 +265,6 @@ export default function Etfs() {
       isRefreshingRef.current = false;
       setIsRefreshing(false);
     }
-    fetchRiskMetrics(symbols).then((riskResult) => {
-      setRiskMetrics(riskResult?.data || {});
-      setRiskStatuses(riskResult?.statusBySymbol || {});
-    });
   }, [visibleEtfs, armAfterFetch]);
 
   refreshQuotesRef.current = refreshQuotes;
@@ -336,10 +344,12 @@ export default function Etfs() {
         ...customEtfs,
         {
           symbol,
-          name: poolItem.name || symbol,
+          name: poolItem.name && poolItem.name !== symbol ? poolItem.name : (poolItem.isin || symbol),
           price: hasInitialPoolPrice ? initialPoolPrice : 0,
           ter: 0,
-          source: "custom"
+          source: "custom",
+          isin: poolItem.isin || (isIsinCode(symbol) ? symbol : undefined),
+          ticker: poolItem.ticker || undefined
         }
       ];
       setCustomEtfs(nextCustomEtfs);
@@ -430,16 +440,6 @@ export default function Etfs() {
     return <Paper sx={{ p: 3 }}><Typography color="error">{t("etfs.loadFailed")}</Typography></Paper>;
   }
 
-  const getRiskTone = (riskLevel) => {
-    if (riskLevel === "konservativ") {
-      return { barColor: "#2e7d32", trackColor: "rgba(46, 125, 50, 0.16)", textColor: "success.main" };
-    }
-    if (riskLevel === "moderat") {
-      return { barColor: "#ed6c02", trackColor: "rgba(237, 108, 2, 0.16)", textColor: "warning.main" };
-    }
-    return { barColor: "#d32f2f", trackColor: "rgba(211, 47, 47, 0.16)", textColor: "error.main" };
-  };
-
   return (
     <Paper sx={{ p: { xs: 2, md: 3 }, overflow: "hidden" }}>
       <Typography
@@ -450,11 +450,16 @@ export default function Etfs() {
           letterSpacing: "0.01em"
         }}
       >
-        {t("etfs.title")}
+        <Tooltip title={t("etfs.etfHint")}>
+          <Box component="span" sx={hintMarkSx}>{t("etfs.etf")}</Box>
+        </Tooltip>
+        {" "}{t("etfs.titleRest")}
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        {t("etfs.cashLine", { cash: formatCurrency(state.cash), after: formatCurrency(remainingCashAfterInput) })}
-      </Typography>
+      <Tooltip title={t("etfs.cashHint")}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3, width: "fit-content", maxWidth: "100%", ...hintMarkSx }}>
+          {t("etfs.cashLine", { cash: formatCurrency(state.cash), after: formatCurrency(remainingCashAfterInput) })}
+        </Typography>
+      </Tooltip>
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
         {t("etfs.heldHint")}
       </Typography>
@@ -466,17 +471,26 @@ export default function Etfs() {
           options={poolDisplayResults}
           loading={isPoolLoading}
           inputValue={poolQuery}
-          onInputChange={(_event, value) => setPoolQuery(value)}
+          clearOnBlur={false}
+          onInputChange={(_event, value, reason) => {
+            if (reason === "reset") {
+              return;
+            }
+            setPoolQuery(value);
+          }}
           onChange={(_event, value) => {
             if (value) {
               handleAddEtfFromPool(value);
             }
           }}
+          filterOptions={(options) => options}
           getOptionLabel={(option) => {
             if (typeof option === "string") {
               return option;
             }
-            return `${option.symbol || t("common.dash")} - ${option.name || ""}`;
+            const isin = option.isin ? ` · ${option.isin}` : "";
+            const symbol = option.ticker || option.symbol || t("common.dash");
+            return `${symbol} - ${option.name || ""}${isin}`;
           }}
           isOptionEqualToValue={(option, value) => option.symbol === value.symbol}
           noOptionsText={
@@ -485,15 +499,23 @@ export default function Etfs() {
               : t("etfs.noResults")
           }
           renderOption={(props, option) => {
-            const symbol = option.symbol?.toUpperCase() || t("common.dash");
+            const symbol = (option.ticker || option.symbol || t("common.dash")).toUpperCase();
+            const hasName = option.name && option.name !== option.symbol && option.name !== option.ticker;
+            const price = Number(option.marketPrice);
             return (
               <Box component="li" {...props} key={`${symbol}-${option.exchange || t("common.dash")}`}>
                 <Box sx={{ display: "flex", flexDirection: "column" }}>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    {symbol} - {option.name}
+                    {hasName ? `${symbol} - ${option.name}` : symbol}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {option.exchange || t("common.dash")} | {option.currency || t("common.dash")}
+                    {[
+                      option.isin,
+                      option.exchange,
+                      option.currency,
+                      price > 0 ? formatCurrency(price) : null,
+                      hasName ? null : t("etfs.delayedHit")
+                    ].filter(Boolean).join(" | ") || t("common.dash")}
                   </Typography>
                 </Box>
               </Box>
@@ -526,19 +548,19 @@ export default function Etfs() {
           <Tooltip title={t("etfs.ucitsHint")}>
             <FormControlLabel
               control={<Checkbox size="small" checked={filterUcits} onChange={(e) => setFilterUcits(e.target.checked)} />}
-              label={t("etfs.ucits")}
+              label={<Box component="span" sx={hintMarkSx}>{t("etfs.ucits")}</Box>}
             />
           </Tooltip>
           <Tooltip title={t("etfs.eurHint")}>
             <FormControlLabel
               control={<Checkbox size="small" checked={filterEur} onChange={(e) => setFilterEur(e.target.checked)} />}
-              label={t("etfs.eur")}
+              label={<Box component="span" sx={hintMarkSx}>{t("etfs.eur")}</Box>}
             />
           </Tooltip>
           <Tooltip title={t("etfs.xetraHint")}>
             <FormControlLabel
               control={<Checkbox size="small" checked={filterXetra} onChange={(e) => setFilterXetra(e.target.checked)} />}
-              label={t("etfs.xetra")}
+              label={<Box component="span" sx={hintMarkSx}>{t("etfs.xetra")}</Box>}
             />
           </Tooltip>
         </Box>
@@ -585,17 +607,23 @@ export default function Etfs() {
         <TableHead>
           <TableRow sx={{ backgroundColor: "#f5f5f5", "&:hover": { backgroundColor: "#f5f5f5" } }}>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "symbol" ? sortConfig.direction : false}>
-              <Tooltip title={t("common.sortHint")}>
+              <Tooltip title={t("etfs.symbolHint")}>
                 <TableSortLabel
                   active={sortConfig.field === "symbol"}
                   direction={sortConfig.field === "symbol" ? sortConfig.direction : "asc"}
                   onClick={() => handleSort("symbol")}
                 >
-                  {t("etfs.symbol")}
+                  <Box component="span" sx={hintMarkSx}>{t("etfs.symbol")}</Box>
                 </TableSortLabel>
               </Tooltip>
             </TableCell>
-            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>{t("etfs.isin")}</TableCell>
+            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>
+              <Tooltip title={t("etfs.isinHint")}>
+                <Box component="span" sx={hintMarkSx}>
+                  {t("etfs.isin")}
+                </Box>
+              </Tooltip>
+            </TableCell>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "name" ? sortConfig.direction : false}>
               <Tooltip title={t("common.sortHint")}>
                 <TableSortLabel
@@ -608,24 +636,19 @@ export default function Etfs() {
               </Tooltip>
             </TableCell>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }} sortDirection={sortConfig.field === "price" ? sortConfig.direction : false}>
-              <Tooltip title={t("common.sortHint")}>
+              <Tooltip title={t("etfs.priceHint")}>
                 <TableSortLabel
                   active={sortConfig.field === "price"}
                   direction={sortConfig.field === "price" ? sortConfig.direction : "asc"}
                   onClick={() => handleSort("price")}
                 >
-                  {t("etfs.price")}
+                  <Box component="span" sx={hintMarkSx}>{t("etfs.price")}</Box>
                 </TableSortLabel>
               </Tooltip>
             </TableCell>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>
               <Tooltip title={t("etfs.terHint")}>
-                <span>{t("etfs.ter")}</span>
-              </Tooltip>
-            </TableCell>
-            <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333", minWidth: 210 }}>
-              <Tooltip title={t("etfs.riskHint")}>
-                <span>{t("etfs.risk")}</span>
+                <Box component="span" sx={hintMarkSx}>{t("etfs.ter")}</Box>
               </Tooltip>
             </TableCell>
             <TableCell sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#333" }}>{t("etfs.quantity")}</TableCell>
@@ -645,15 +668,13 @@ export default function Etfs() {
             const sharesInPortfolio = state?.holdings?.[etf.symbol]?.shares || 0;
             const quotePrice = quotes?.[etf.symbol]?.price;
             const quoteTer = quotes?.[etf.symbol]?.ter;
-            const isin = ETF_ISIN_BY_SYMBOL[etf.symbol] || t("common.dash");
+            const isin = ETF_ISIN_BY_SYMBOL[etf.symbol]
+              || etf.isin
+              || (/^[A-Z0-9]{12}$/i.test(etf.symbol) ? etf.symbol.toUpperCase() : t("common.dash"));
             const price = quotePrice > 0 ? quotePrice : etf.price;
             const terValue = quoteTer > 0 ? quoteTer : etf.ter;
-            const riskEntry = riskMetrics?.[etf.symbol] || null;
-            const riskStatus = riskStatuses?.[etf.symbol] || null;
             const rowTotal = Number.isFinite(quantity) && quantity > 0 ? quantity * price : 0;
             const buyDisabled = !Number.isInteger(quantity) || quantity <= 0 || rowTotal > state.cash;
-            const riskTone = getRiskTone(riskEntry?.riskLevel);
-            const riskScore = Math.max(0, Math.min(100, Number(riskEntry?.riskScore || 0)));
 
             return (
               <TableRow
@@ -668,7 +689,7 @@ export default function Etfs() {
                 }
               >
                 <TableCell>
-                  {etf.symbol}
+                  {displaySymbol(etf, t("common.dash"))}
                   {sharesInPortfolio > 0 && (
                     <Chip
                       label={t("etfs.inPortfolio")}
@@ -713,49 +734,6 @@ export default function Etfs() {
                   </Tooltip>
                 </TableCell>
                 <TableCell>{terValue > 0 ? `${terValue}%` : t("common.dash")}</TableCell>
-                <TableCell>
-                  {riskEntry ? (
-                    <Tooltip
-                      title={t("etfs.riskTooltip", {
-                        level: riskEntry.riskLevel,
-                        vola: riskEntry.volatilityPct,
-                        drawdown: riskEntry.drawdownPct,
-                        days: riskEntry.sampleDays
-                      })}
-                    >
-                      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, minWidth: 180 }}>
-                        <Box
-                          sx={{
-                            height: 8,
-                            borderRadius: 999,
-                            backgroundColor: riskTone.trackColor,
-                            overflow: "hidden"
-                          }}
-                        >
-                          <Box
-                            sx={{
-                              width: `${riskScore}%`,
-                              height: "100%",
-                              backgroundColor: riskTone.barColor
-                            }}
-                          />
-                        </Box>
-                        <Typography variant="caption" color={riskTone.textColor} sx={{ fontWeight: 700 }}>
-                          {t("etfs.riskScore", { level: riskEntry.riskLevel, score: riskScore })}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {t("etfs.riskCaption", { vola: riskEntry.volatilityPct, drawdown: riskEntry.drawdownPct })}
-                        </Typography>
-                      </Box>
-                    </Tooltip>
-                  ) : (
-                    <Typography variant="caption" color={riskStatus === "error" ? "error.main" : "text.secondary"}>
-                      {riskStatus === "error"
-                        ? t("etfs.unavailable")
-                        : t("etfs.noHistory")}
-                    </Typography>
-                  )}
-                </TableCell>
                 <TableCell>
                   <TextField
                     size="small"

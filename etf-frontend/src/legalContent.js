@@ -38,7 +38,7 @@ export const LEGAL_CONTENT = {
   },
   datenschutz: {
     title: "Datenschutzerklärung",
-    updatedAt: "21.10.2026",
+    updatedAt: "25.10.2026",
     sections: [
       {
         heading: "Verantwortliche Stelle",
@@ -72,7 +72,8 @@ export const LEGAL_CONTENT = {
         heading: "Hosting und Empfänger",
         paragraphs: [
           "Personenbezogene Daten liegen auf der vom Betreiber betriebenen Instanz (Anwendung und Datenbank). Es gibt derzeit keine Analyse-, Werbe- oder Tracking-Dienstleister.",
-          "Kurse werden serverseitig aus dem offiziellen 15-Minuten-Delayed-Feed der Deutschen Börse (Xetra und Frankfurt) bezogen, typischerweise über Wertpapierkennungen (ISIN), nicht über dein Benutzerkonto. Dabei kann die IP-Adresse des Servers bei der Deutschen Börse sichtbar sein. TER-Kennzahlen stammen nur aus einer selbst gepflegten Fallback-Liste auf der Instanz, nicht von justETF, Yahoo, Stooq oder ETFdb."
+          "Kurse werden serverseitig aus dem offiziellen 15-Minuten-Delayed-Feed der Deutschen Börse (Xetra und Frankfurt) bezogen, typischerweise über Wertpapierkennungen (ISIN), nicht über dein Benutzerkonto. Dabei kann die IP-Adresse des Servers bei der Deutschen Börse sichtbar sein.",
+          "Name und Börsenkürzel zu einer ISIN holt der Server zusätzlich aus öffentlichen Stammdaten: der OpenFIGI-Mapping-API (Kürzel) und den ESMA-FIRDS-Referenzdateien (Name). Dabei ist die Server-IP bei diesen Stellen sichtbar. Es werden keine Kurse von OpenFIGI, ESMA, justETF, Yahoo, Stooq oder ETFdb bezogen. TER-Kennzahlen stammen nur aus einer selbst gepflegten Fallback-Liste auf der Instanz."
         ]
       },
       {

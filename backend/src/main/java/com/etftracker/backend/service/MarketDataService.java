@@ -7,6 +7,8 @@ import com.etftracker.backend.dto.QuoteResponse;
 import com.etftracker.backend.entity.MarketCache;
 import com.etftracker.backend.repository.MarketCacheRepository;
 import com.etftracker.backend.service.market.DeutscheBoerseDelayedClient;
+import com.etftracker.backend.service.market.InstrumentMeta;
+import com.etftracker.backend.service.market.InstrumentMetadataService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,6 +36,7 @@ public class MarketDataService {
     private final AppSettingService appSettingService;
     private final MarketCacheRepository marketCacheRepository;
     private final DeutscheBoerseDelayedClient delayedQuoteClient;
+    private final InstrumentMetadataService instrumentMetadataService;
     private final ExecutorService refreshExecutor = Executors.newFixedThreadPool(2, runnable -> {
         Thread thread = new Thread(runnable, "market-cache-refresh");
         thread.setDaemon(true);
@@ -128,11 +131,13 @@ public class MarketDataService {
             AppSettingService appSettingService,
             MarketCacheRepository marketCacheRepository,
             DeutscheBoerseDelayedClient delayedQuoteClient,
+            InstrumentMetadataService instrumentMetadataService,
             @Value("classpath:ter-fallbacks.properties") Resource terFallbackResource,
             @Value("${ter.fallback.file:./ter-fallbacks.properties}") String terFallbackFile) {
         this.appSettingService = appSettingService;
         this.marketCacheRepository = marketCacheRepository;
         this.delayedQuoteClient = delayedQuoteClient;
+        this.instrumentMetadataService = instrumentMetadataService;
         this.terFallbacks = new ConcurrentHashMap<>();
         this.terFallbackFilePath = Paths.get(terFallbackFile).toAbsolutePath().normalize();
         loadTerFallbacks(terFallbackResource, this.terFallbackFilePath);
@@ -248,10 +253,80 @@ public class MarketDataService {
         List<String> tokens = Arrays.stream(q.split("\\s+"))
                 .filter(token -> token.length() >= 2)
                 .toList();
-        return ETF_POOL_FALLBACK.stream()
+        int cap = Math.max(1, limit);
+        List<EtfPoolItemResponse> matches = new ArrayList<>();
+        ETF_POOL_FALLBACK.stream()
                 .filter(item -> matchesPoolQuery(item, q, tokens))
-                .limit(Math.max(1, limit))
-                .toList();
+                .map(this::copyWithIsin)
+                .limit(cap)
+                .forEach(matches::add);
+
+        String compact = compactSearchText(q);
+        if (isIsinQuery(compact)
+                && matches.stream().noneMatch(item -> compact.equalsIgnoreCase(item.getIsin()))) {
+            EtfPoolItemResponse fromFeed = poolItemFromDelayedIsin(compact);
+            if (fromFeed != null) {
+                matches.add(0, fromFeed);
+                if (matches.size() > cap) {
+                    matches = new ArrayList<>(matches.subList(0, cap));
+                }
+            }
+        }
+        return matches;
+    }
+
+    private static boolean isIsinQuery(String value) {
+        return value != null && value.length() == 12 && value.chars().allMatch(Character::isLetterOrDigit);
+    }
+
+    private String symbolForIsin(String isin) {
+        return KNOWN_ISINS.entrySet().stream()
+                .filter(entry -> isin.equalsIgnoreCase(entry.getValue()))
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static String mapVenue(String venue) {
+        if (venue == null || venue.isBlank()) {
+            return "";
+        }
+        String normalized = venue.trim().toUpperCase(Locale.ROOT);
+        if ("XETR".equals(normalized) || "XETA".equals(normalized)) {
+            return "XETRA";
+        }
+        if ("XFRA".equals(normalized)) {
+            return "FRA";
+        }
+        return normalized;
+    }
+
+    private EtfPoolItemResponse poolItemFromDelayedIsin(String isin) {
+        DeutscheBoerseDelayedClient.DelayedQuote delayed = delayedQuoteClient.fetchLastPriceFresh(isin);
+        if (delayed == null) {
+            return null;
+        }
+        String knownSymbol = symbolForIsin(isin);
+        InstrumentMeta meta = instrumentMetadataService.lookup(isin);
+        String ticker = meta != null ? meta.ticker() : null;
+        String symbol = knownSymbol != null ? knownSymbol : isin;
+        String name = "";
+        if (knownSymbol != null) {
+            name = ETF_POOL_FALLBACK.stream()
+                    .filter(item -> knownSymbol.equalsIgnoreCase(item.getSymbol()))
+                    .map(EtfPoolItemResponse::getName)
+                    .findFirst()
+                    .orElse("");
+        }
+        if ((name == null || name.isBlank()) && meta != null && meta.name() != null) {
+            name = meta.name();
+        }
+        String currency = delayed.currency() == null ? "" : delayed.currency();
+        EtfPoolItemResponse item = new EtfPoolItemResponse(
+                symbol, name, mapVenue(delayed.venue()), currency, delayed.price());
+        item.setIsin(isin);
+        item.setTicker(ticker);
+        return item;
     }
 
     private boolean matchesPoolQuery(EtfPoolItemResponse item, String query, List<String> tokens) {
@@ -259,7 +334,24 @@ public class MarketDataService {
         if (haystack.contains(query)) {
             return true;
         }
+        String compactQuery = compactSearchText(query);
+        String compactHaystack = compactSearchText(haystack);
+        if (compactQuery.length() >= 2 && compactHaystack.contains(compactQuery)) {
+            return true;
+        }
         return !tokens.isEmpty() && tokens.stream().allMatch(haystack::contains);
+    }
+
+    private static String compactSearchText(String value) {
+        return value.replaceAll("[\\s-]+", "");
+    }
+
+    private EtfPoolItemResponse copyWithIsin(EtfPoolItemResponse item) {
+        EtfPoolItemResponse copy = new EtfPoolItemResponse(
+                item.getSymbol(), item.getName(), item.getExchange(), item.getCurrency(), item.getMarketPrice());
+        String symbol = item.getSymbol() == null ? "" : item.getSymbol();
+        copy.setIsin(KNOWN_ISINS.getOrDefault(symbol.toUpperCase(Locale.ROOT), ""));
+        return copy;
     }
 
     private String poolSearchHaystack(EtfPoolItemResponse item) {

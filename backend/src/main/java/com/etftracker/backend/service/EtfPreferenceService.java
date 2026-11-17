@@ -5,6 +5,8 @@ import com.etftracker.backend.dto.EtfPreferenceResponse;
 import com.etftracker.backend.entity.User;
 import com.etftracker.backend.entity.UserEtfSelection;
 import com.etftracker.backend.repository.UserEtfSelectionRepository;
+import com.etftracker.backend.service.market.InstrumentMeta;
+import com.etftracker.backend.service.market.InstrumentMetadataService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,9 +27,12 @@ public class EtfPreferenceService {
     private static final Set<String> DEFAULT_SYMBOLS = Set.of("VWCE", "EUNL", "EMIM", "SXR8", "EXSA", "SPYD");
 
     private final UserEtfSelectionRepository userEtfSelectionRepository;
+    private final InstrumentMetadataService instrumentMetadataService;
 
-    public EtfPreferenceService(UserEtfSelectionRepository userEtfSelectionRepository) {
+    public EtfPreferenceService(UserEtfSelectionRepository userEtfSelectionRepository,
+            InstrumentMetadataService instrumentMetadataService) {
         this.userEtfSelectionRepository = userEtfSelectionRepository;
+        this.instrumentMetadataService = instrumentMetadataService;
     }
 
     @Transactional(readOnly = true)
@@ -52,16 +57,21 @@ public class EtfPreferenceService {
         items.stream()
                 .filter(UserEtfSelection::isCustom)
                 .sorted(Comparator.comparing(UserEtfSelection::getSymbol))
-                .forEach(item -> response.getCustomEtfs().add(
-                        new EtfPreferenceResponse.EtfItem(
-                                item.getSymbol(),
-                                item.getName(),
-                                item.getPrice().doubleValue(),
-                                item.getTer().doubleValue(),
-                                item.getSource() != null && !item.getSource().isBlank() ? item.getSource()
-                                        : "custom",
-                                item.getCreatedAt() == null ? null
-                                        : item.getCreatedAt().format(DateTimeFormatter.ISO_DATE_TIME))));
+                .forEach(item -> {
+                    EtfPreferenceResponse.EtfItem dto = new EtfPreferenceResponse.EtfItem(
+                            item.getSymbol(),
+                            item.getName(),
+                            item.getPrice().doubleValue(),
+                            item.getTer().doubleValue(),
+                            item.getSource() != null && !item.getSource().isBlank() ? item.getSource()
+                                    : "custom",
+                            item.getCreatedAt() == null ? null
+                                    : item.getCreatedAt().format(DateTimeFormatter.ISO_DATE_TIME));
+                    dto.setIsin(item.getIsin());
+                    dto.setTicker(item.getTicker());
+                    enrichInstrument(dto);
+                    response.getCustomEtfs().add(dto);
+                });
 
         if (response.getSelectedSymbols().isEmpty()) {
             List<String> defaultSymbols = new ArrayList<>(DEFAULT_SYMBOLS);
@@ -128,6 +138,10 @@ public class EtfPreferenceService {
 
             UserEtfSelection selection = new UserEtfSelection(user, symbol, name, price, ter, true, isCustom);
             selection.setSource(source);
+            if (isCustom && custom != null) {
+                selection.setIsin(custom.getIsin());
+                selection.setTicker(custom.getTicker());
+            }
 
             // Preserve the original createdAt timestamp if this symbol was already selected
             if (existingCreatedAtBySymbol.containsKey(symbol)) {
@@ -140,5 +154,38 @@ public class EtfPreferenceService {
         userEtfSelectionRepository.saveAll(toSave);
 
         return load(user);
+    }
+
+    private void enrichInstrument(EtfPreferenceResponse.EtfItem item) {
+        if (item == null) {
+            return;
+        }
+        String isin = item.getIsin();
+        if (isin == null || isin.isBlank()) {
+            String symbol = item.getSymbol() == null ? "" : item.getSymbol().trim().toUpperCase(Locale.ROOT);
+            if (symbol.length() == 12) {
+                isin = symbol;
+            }
+        }
+        if (isin == null || isin.isBlank()) {
+            return;
+        }
+        item.setIsin(isin);
+        if (item.getTicker() != null && !item.getTicker().isBlank()
+                && item.getName() != null && !item.getName().isBlank()
+                && !item.getName().equalsIgnoreCase(item.getSymbol())) {
+            return;
+        }
+        InstrumentMeta meta = instrumentMetadataService.lookup(isin);
+        if (meta == null) {
+            return;
+        }
+        if ((item.getTicker() == null || item.getTicker().isBlank()) && meta.ticker() != null) {
+            item.setTicker(meta.ticker());
+        }
+        if (meta.name() != null && (item.getName() == null || item.getName().isBlank()
+                || item.getName().equalsIgnoreCase(item.getSymbol()))) {
+            item.setName(meta.name());
+        }
     }
 }

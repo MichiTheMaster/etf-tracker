@@ -444,7 +444,8 @@ export async function searchEtfPool(query, limit = 15) {
   try {
     const params = new URLSearchParams({ q: query.trim(), limit: String(limit) });
     const data = await apiGet(`/api/market/pool?${params.toString()}`, {
-      fallbackMessage: t("market.poolFailed")
+      fallbackMessage: t("market.poolFailed"),
+      timeoutMs: 25000
     });
     return Array.isArray(data) ? data : [];
   } catch (_error) {
